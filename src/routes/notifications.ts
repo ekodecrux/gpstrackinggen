@@ -35,8 +35,11 @@ async function sendTwilioSMS(
   from: string,
   body: string
 ) {
-  if (!accountSid || !authToken || authToken === 'PASTE_YOUR_TWILIO_AUTH_TOKEN_HERE') {
-    throw new Error('Twilio credentials not configured. Add TWILIO_AUTH_TOKEN to .dev.vars')
+  if (!accountSid || !authToken || authToken === 'PASTE_YOUR_32CHAR_AUTH_TOKEN_HERE' || authToken === 'PASTE_YOUR_TWILIO_AUTH_TOKEN_HERE') {
+    throw new Error('Twilio Auth Token not configured. Go to console.twilio.com → Dashboard → Auth Token (32-char hex, NOT the Account SID). Add it to .dev.vars as TWILIO_AUTH_TOKEN')
+  }
+  if (authToken.startsWith('AC') && authToken.length === 34) {
+    throw new Error('Wrong value: TWILIO_AUTH_TOKEN is set to the Account SID (AC...). The Auth Token is a different 32-char hex string. Find it at console.twilio.com → Dashboard → Account Info → Auth Token (click eye icon to reveal)')
   }
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`
   const auth = btoa(`${accountSid}:${authToken}`)
@@ -62,8 +65,11 @@ async function sendTwilioVerify(
   authToken: string,
   to: string
 ) {
-  if (!authToken || authToken === 'PASTE_YOUR_TWILIO_AUTH_TOKEN_HERE') {
-    throw new Error('Twilio credentials not configured. Add TWILIO_AUTH_TOKEN to .dev.vars')
+  if (!authToken || authToken === 'PASTE_YOUR_32CHAR_AUTH_TOKEN_HERE' || authToken === 'PASTE_YOUR_TWILIO_AUTH_TOKEN_HERE') {
+    throw new Error('Twilio Auth Token not configured. Go to console.twilio.com → Dashboard → Auth Token. Add it to .dev.vars as TWILIO_AUTH_TOKEN')
+  }
+  if (authToken.startsWith('AC') && authToken.length === 34) {
+    throw new Error('Wrong value: TWILIO_AUTH_TOKEN is set to the Account SID (AC...). The Auth Token is a DIFFERENT 32-char hex string. Find it at console.twilio.com → Dashboard → Auth Token')
   }
   const url = `https://verify.twilio.com/v2/Services/${serviceSid}/Verifications`
   const auth = btoa(`${accountSid}:${authToken}`)
