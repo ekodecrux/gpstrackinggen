@@ -1,20 +1,33 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/cloudflare-workers'
 import api from './routes/api'
+import groqRoutes from './routes/groq'
+import notifRoutes from './routes/notifications'
 
-const app = new Hono()
+type Bindings = {
+  GROQ_API_KEY: string; GROQ_MODEL: string
+  TWILIO_ACCOUNT_SID: string; TWILIO_AUTH_TOKEN: string
+  TWILIO_VERIFY_SERVICE_SID: string; TWILIO_FROM_NUMBER: string
+  SMTP_HOST: string; SMTP_PORT: string; SMTP_USER: string; SMTP_PASS: string; SMTP_FROM: string
+  ADMIN_PHONE: string
+}
+
+const app = new Hono<{ Bindings: Bindings }>()
 
 // ── Static assets ─────────────────────────────────────────────
 app.use('/static/*', serveStatic({ root: './public' }))
 
 // ── API Routes ────────────────────────────────────────────────
 app.route('/api', api)
+app.route('/api/ai', groqRoutes)
+app.route('/api/notify', notifRoutes)
 
 // ── LANDING PAGE ──────────────────────────────────────────────
 app.get('/', (c) => c.html(landingPage()))
 
 // ── AUTH ──────────────────────────────────────────────────────
 app.get('/login', (c) => c.html(loginPage()))
+app.get('/login/phone', (c) => c.html(phoneLoginPage()))
 
 // ── SUPER ADMIN ───────────────────────────────────────────────
 app.get('/superadmin', (c) => c.html(superAdminPage()))
@@ -32,6 +45,7 @@ app.get('/admin/routes', (c) => c.html(tenantAdminPage('routes')))
 app.get('/admin/alerts', (c) => c.html(tenantAdminPage('alerts')))
 app.get('/admin/reports', (c) => c.html(tenantAdminPage('reports')))
 app.get('/admin/settings', (c) => c.html(tenantAdminPage('settings')))
+app.get('/admin/ai', (c) => c.html(aiAssistantPage()))
 
 // ── LIVE TRACKING ─────────────────────────────────────────────
 app.get('/tracking', (c) => c.html(trackingPage()))
@@ -44,6 +58,9 @@ app.get('/parent', (c) => c.html(parentPortalPage()))
 
 // ── ERP API DOCS ──────────────────────────────────────────────
 app.get('/erp-docs', (c) => c.html(erpDocsPage()))
+
+// ── NOTIFICATIONS TEST CONSOLE ────────────────────────────────
+app.get('/notify-console', (c) => c.html(notifyConsolePage()))
 
 export default app
 
@@ -184,6 +201,8 @@ function sidebarLayout(activePage: string, role: 'super' | 'tenant', content: st
     <div class="section-title">Config</div>
     <a href="/superadmin/settings" class="${activePage==='settings'?'active':''}"><i class="fa fa-gear"></i> Platform Settings</a>
     <a href="/erp-docs"><i class="fa fa-code"></i> ERP API Docs</a>
+    <a href="/admin/ai"><i class="fa fa-robot"></i> AI Assistant</a>
+    <a href="/notify-console"><i class="fa fa-bell"></i> Notifications</a>
     <div class="section-title">Switch View</div>
     <a href="/admin"><i class="fa fa-school"></i> Tenant Admin</a>
     <a href="/tracking"><i class="fa fa-map"></i> Live Tracking</a>`
@@ -198,8 +217,10 @@ function sidebarLayout(activePage: string, role: 'super' | 'tenant', content: st
     <a href="/admin/drivers" class="${activePage==='drivers'?'active':''}"><i class="fa fa-id-badge"></i> Drivers</a>
     <a href="/admin/students" class="${activePage==='students'?'active':''}"><i class="fa fa-users"></i> Students</a>
     <a href="/admin/routes" class="${activePage==='routes'?'active':''}"><i class="fa fa-route"></i> Routes</a>
-    <div class="section-title">Reports</div>
+    <div class="section-title">Reports & AI</div>
     <a href="/admin/reports" class="${activePage==='reports'?'active':''}"><i class="fa fa-file-lines"></i> Reports</a>
+    <a href="/admin/ai" class="${activePage==='ai'?'active':''}"><i class="fa fa-robot"></i> AI Assistant <span style="background:linear-gradient(135deg,#1a73e8,#00c853);color:#fff;border-radius:10px;padding:1px 7px;font-size:.65rem;margin-left:auto">Groq</span></a>
+    <a href="/notify-console" class="${activePage==='notify'?'active':''}"><i class="fa fa-bell"></i> Notifications</a>
     <div class="section-title">Switch View</div>
     <a href="/superadmin"><i class="fa fa-crown"></i> Super Admin</a>
     <a href="/driver"><i class="fa fa-mobile"></i> Driver App</a>
@@ -2070,19 +2091,49 @@ setInterval(() => {
 
 function showDriverToast(msg, type) { showToast(msg, type); }
 
-function triggerSOS() {
-  if (confirm('🚨 SEND SOS EMERGENCY ALERT?\\n\\nThis will immediately alert the school admin and platform team.')) {
-    showToast('🚨 SOS SENT! Admin notified immediately', 'error');
+async function triggerSOS() {
+  if (!confirm('🚨 SEND SOS EMERGENCY ALERT?\\n\\nThis will immediately send an SMS alert to the school admin and your emergency contact.')) return;
+  const sosBtn = document.querySelector('.sos-btn');
+  if (sosBtn) { sosBtn.innerHTML = '⏳ Sending SOS...'; sosBtn.disabled = true; }
+  try {
+    // Get current GPS position if available
+    let lat = 28.6200, lng = 77.2100;
+    try {
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
+      lat = pos.coords.latitude; lng = pos.coords.longitude;
+    } catch(_) {}
+
+    const res = await fetch('/api/notify/sms/sos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ busId: 'b001', driverId: 'd001', lat, lng })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const sent = data.results.filter(r => r.status === 'sent').length;
+      showToast('🚨 SOS SENT to ' + sent + ' contact(s)! Help is on the way.', 'error');
+      // Log it
+      console.log('[SOS] Triggered:', data);
+    } else {
+      showToast('⚠️ SOS API: ' + (data.error || 'Failed. Contact admin manually.'), 'warning');
+    }
+  } catch(e) {
+    showToast('🚨 SOS triggered (offline mode) — contact admin manually!', 'error');
+  } finally {
+    if (sosBtn) { sosBtn.innerHTML = '🚨 SOS EMERGENCY'; sosBtn.disabled = false; }
   }
 }
 
 function startTrip() {
   showToast('✅ Trip started! GPS broadcasting active', 'success');
+  // In production: POST /api/trips/start with busId + driverId
+  document.querySelector('.trip-start-btn')?.remove();
 }
 
 function endTrip() {
   if (confirm('End trip and submit report?')) {
     showToast('Trip ended. Report submitted automatically.', 'success');
+    // In production: POST /api/trips/end with tripId
   }
 }
 </script>
@@ -2538,4 +2589,785 @@ async function tryApi(url, targetId) {
 }
 </script>
 </body></html>`
+}
+
+// ════════════════════════════════════════════════════════════════
+// AI ASSISTANT PAGE — Groq Llama 3.3 70B
+// ════════════════════════════════════════════════════════════════
+function aiAssistantPage(): string {
+  const content = `
+<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;height:calc(100vh - 140px)">
+
+  <!-- Chat Panel -->
+  <div class="card" style="display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;background:linear-gradient(135deg,#0d1b2a,#1a3a5c);color:#fff">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#1a73e8,#00c853);display:flex;align-items:center;justify-content:center;font-size:1.3rem">🤖</div>
+        <div>
+          <div style="font-weight:800;font-size:1rem">TrackSchool AI</div>
+          <div style="font-size:.72rem;opacity:.8">Powered by <strong>Groq · Llama 3.3 70B</strong> · Ultra-fast inference</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <button onclick="generateDailySummary()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:6px 12px;border-radius:8px;font-size:.75rem;cursor:pointer;font-weight:600">📊 Daily Summary</button>
+          <button onclick="analyzeAlerts()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:6px 12px;border-radius:8px;font-size:.75rem;cursor:pointer;font-weight:600">🚨 Analyze Alerts</button>
+          <button onclick="clearChat()" style="background:rgba(255,255,255,.1);border:none;color:rgba(255,255,255,.6);padding:6px 12px;border-radius:8px;font-size:.75rem;cursor:pointer">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chatMessages" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px">
+      <!-- Welcome message -->
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#1a73e8,#00c853);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">🤖</div>
+        <div style="background:#f0f4ff;border-radius:0 12px 12px 12px;padding:12px 16px;max-width:80%">
+          <p style="margin:0;font-size:.875rem;line-height:1.6">👋 Hello! I'm your <strong>TrackSchool AI Assistant</strong>, powered by <strong>Groq's Llama 3.3 70B</strong>.<br><br>
+          I have live access to your fleet data — <strong>18 buses, 4 active routes, 4 alerts</strong> right now.<br><br>
+          You can ask me anything about your fleet:</p>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">🚌 Which buses are delayed?</button>
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">⚡ Optimize Route A</button>
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">👨‍✈️ Analyze driver performance</button>
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">🔮 Predict tomorrow's delays</button>
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">📊 Give me today's summary</button>
+            <button onclick="sendQuickPrompt(this)" class="quick-btn">🛡️ How to prevent SOS incidents?</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Typing indicator -->
+    <div id="typingIndicator" style="display:none;padding:0 20px 8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#1a73e8,#00c853);display:flex;align-items:center;justify-content:center;font-size:.9rem">🤖</div>
+        <div style="background:#f0f4ff;border-radius:0 12px 12px 12px;padding:10px 14px">
+          <div style="display:flex;gap:4px;align-items:center">
+            <div style="width:8px;height:8px;background:#1a73e8;border-radius:50%;animation:bounce 1.2s infinite"></div>
+            <div style="width:8px;height:8px;background:#1a73e8;border-radius:50%;animation:bounce 1.2s infinite .2s"></div>
+            <div style="width:8px;height:8px;background:#1a73e8;border-radius:50%;animation:bounce 1.2s infinite .4s"></div>
+            <span style="font-size:.75rem;color:#666;margin-left:6px">Groq is thinking...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:16px;border-top:1px solid #f0f0f0;display:flex;gap:10px">
+      <input type="text" id="chatInput" placeholder="Ask about your fleet, routes, alerts, drivers..." style="flex:1;padding:12px 16px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:.875rem;outline:none" onkeydown="if(event.key==='Enter')sendMessage()">
+      <button onclick="sendMessage()" id="sendBtn" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:.875rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <i class="fa fa-paper-plane"></i> Send
+      </button>
+    </div>
+  </div>
+
+  <!-- Right Panel: Quick Actions + Route Optimizer -->
+  <div style="display:flex;flex-direction:column;gap:16px;overflow-y:auto">
+
+    <!-- Route Optimizer -->
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700"><i class="fa fa-route" style="color:#1a73e8;margin-right:8px"></i>AI Route Optimizer</h3>
+      <div class="form-group" style="margin-bottom:10px">
+        <select id="routeSelect" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem;outline:none">
+          <option value="r001">Route A - North Delhi</option>
+          <option value="r002">Route B - South Delhi</option>
+          <option value="r003">Route C - East Delhi</option>
+          <option value="r004">Route D - West Delhi</option>
+        </select>
+      </div>
+      <button onclick="optimizeRoute()" class="btn btn-primary" style="width:100%;justify-content:center">
+        <i class="fa fa-wand-magic-sparkles"></i> Optimize with AI
+      </button>
+      <div id="routeOptResult" style="display:none;margin-top:12px;background:#f0f7ff;border-radius:8px;padding:12px;font-size:.8rem;line-height:1.7;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
+    </div>
+
+    <!-- Driver Analyzer -->
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700"><i class="fa fa-id-badge" style="color:#ff9800;margin-right:8px"></i>Driver Performance AI</h3>
+      <div class="form-group" style="margin-bottom:10px">
+        <select id="driverSelect" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem;outline:none">
+          <option value="d001">Rajesh Kumar (4.8★)</option>
+          <option value="d002">Suresh Yadav (4.6★)</option>
+          <option value="d003">Mohan Lal (4.9★)</option>
+          <option value="d004">Vikram Singh (4.3★)</option>
+          <option value="d005">Anil Sharma (4.7★)</option>
+        </select>
+      </div>
+      <button onclick="analyzeDriver()" class="btn" style="width:100%;justify-content:center;background:#ff9800;color:#fff">
+        <i class="fa fa-chart-line"></i> Analyze Performance
+      </button>
+      <div id="driverAnalResult" style="display:none;margin-top:12px;background:#fff8e1;border-radius:8px;padding:12px;font-size:.8rem;line-height:1.7;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
+    </div>
+
+    <!-- ETA Predictor -->
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700"><i class="fa fa-clock" style="color:#00c853;margin-right:8px"></i>AI ETA Prediction</h3>
+      <div class="form-group" style="margin-bottom:10px">
+        <select id="etaBusSelect" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem;outline:none">
+          <option value="b001">Bus Alpha (on trip)</option>
+          <option value="b003">Bus Gamma (on trip)</option>
+          <option value="b004">Bus Delta (delayed)</option>
+        </select>
+      </div>
+      <button onclick="predictETA()" class="btn btn-success" style="width:100%;justify-content:center">
+        <i class="fa fa-location-dot"></i> Predict ETA
+      </button>
+      <div id="etaResult" style="display:none;margin-top:12px;background:#e8f5e9;border-radius:8px;padding:12px;font-size:.85rem;font-weight:600;text-align:center"></div>
+    </div>
+
+    <!-- SMS Quick Send -->
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700"><i class="fa fa-comment-sms" style="color:#1a73e8;margin-right:8px"></i>Quick SMS</h3>
+      <div class="form-group" style="margin-bottom:8px">
+        <input type="tel" id="smsTo" placeholder="+91XXXXXXXXXX" value="+919121664855" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem;outline:none">
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <textarea id="smsBody" rows="3" placeholder="Type your message..." style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.82rem;outline:none;resize:none">🚌 TrackSchool: Bus Alpha is 10 mins away. Track live: trackschool.io/parent</textarea>
+      </div>
+      <button onclick="sendQuickSMS()" class="btn btn-primary" style="width:100%;justify-content:center">
+        <i class="fa fa-paper-plane"></i> Send SMS via Twilio
+      </button>
+      <div id="smsResult" style="display:none;margin-top:8px;font-size:.78rem;text-align:center;padding:8px;border-radius:6px"></div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+  .quick-btn { background:#e8f0fe;color:#1a73e8;border:none;padding:5px 12px;border-radius:20px;font-size:.75rem;cursor:pointer;transition:.15s;font-weight:600 }
+  .quick-btn:hover { background:#1a73e8;color:#fff }
+  .msg-user { display:flex;justify-content:flex-end }
+  .msg-user .bubble { background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;border-radius:12px 0 12px 12px;padding:12px 16px;max-width:80%;font-size:.875rem;line-height:1.6 }
+  .msg-ai { display:flex;gap:10px;align-items:flex-start }
+  .msg-ai .avatar { width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#1a73e8,#00c853);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0 }
+  .msg-ai .bubble { background:#f0f4ff;border-radius:0 12px 12px 12px;padding:12px 16px;max-width:85%;font-size:.875rem;line-height:1.7;white-space:pre-wrap }
+  .msg-time { font-size:.65rem;color:#999;margin-top:4px }
+</style>
+
+${toastScript()}
+<script>
+let chatHistory = [];
+
+function appendMessage(role, content) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  const time = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+  if (role === 'user') {
+    div.className = 'msg-user';
+    div.innerHTML = \`<div><div class="bubble">\${content}</div><div class="msg-time" style="text-align:right">\${time}</div></div>\`;
+  } else {
+    div.className = 'msg-ai';
+    div.innerHTML = \`<div class="avatar">🤖</div><div><div class="bubble">\${content}</div><div class="msg-time">\${time} · Groq Llama 3.3 70B</div></div>\`;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  appendMessage('user', msg);
+  chatHistory.push({ role:'user', content:msg });
+  await getAIReply(msg);
+}
+
+function sendQuickPrompt(btn) {
+  document.getElementById('chatInput').value = btn.textContent.trim();
+  sendMessage();
+}
+
+async function getAIReply(msg) {
+  document.getElementById('typingIndicator').style.display = 'block';
+  document.getElementById('sendBtn').disabled = true;
+  const container = document.getElementById('chatMessages');
+  container.scrollTop = container.scrollHeight;
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg, history: chatHistory.slice(-6), tenantId:'t001' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      chatHistory.push({ role:'assistant', content:data.reply });
+      appendMessage('ai', data.reply);
+    } else {
+      appendMessage('ai', '⚠️ Sorry, I encountered an error: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    appendMessage('ai', '⚠️ Connection error. Please try again.');
+  } finally {
+    document.getElementById('typingIndicator').style.display = 'none';
+    document.getElementById('sendBtn').disabled = false;
+  }
+}
+
+function clearChat() {
+  chatHistory = [];
+  const c = document.getElementById('chatMessages');
+  while (c.children.length > 1) c.removeChild(c.lastChild);
+  showToast('Chat cleared', 'info');
+}
+
+async function generateDailySummary() {
+  appendMessage('user', '📊 Generate today\'s daily transport summary report');
+  chatHistory.push({ role:'user', content:"Generate today's daily transport summary report" });
+  document.getElementById('typingIndicator').style.display = 'block';
+  try {
+    const res = await fetch('/api/ai/daily-summary', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tenantId:'t001'}) });
+    const data = await res.json();
+    if (data.success) {
+      appendMessage('ai', data.summary);
+      chatHistory.push({ role:'assistant', content: data.summary });
+    }
+  } finally { document.getElementById('typingIndicator').style.display = 'none'; }
+}
+
+async function analyzeAlerts() {
+  appendMessage('user', '🚨 Analyze all current alerts and give me an intelligence report');
+  chatHistory.push({ role:'user', content:'Analyze all current alerts and give me an intelligence report' });
+  document.getElementById('typingIndicator').style.display = 'block';
+  try {
+    const res = await fetch('/api/ai/analyze-alerts', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({tenantId:'t001'}) });
+    const data = await res.json();
+    if (data.success) {
+      appendMessage('ai', data.report);
+      chatHistory.push({ role:'assistant', content: data.report });
+    }
+  } finally { document.getElementById('typingIndicator').style.display = 'none'; }
+}
+
+async function optimizeRoute() {
+  const routeId = document.getElementById('routeSelect').value;
+  const routeNames = {r001:'Route A - North Delhi',r002:'Route B - South Delhi',r003:'Route C - East Delhi',r004:'Route D - West Delhi'};
+  const div = document.getElementById('routeOptResult');
+  div.style.display = 'block';
+  div.textContent = '⏳ Analyzing route with Groq AI...';
+  try {
+    const res = await fetch('/api/ai/optimize-route', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ routeId, tenantId:'t001' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      div.textContent = data.analysis;
+      showToast('Route optimization complete!', 'success');
+    } else {
+      div.textContent = '⚠️ Error: ' + data.error;
+    }
+  } catch(e) { div.textContent = '⚠️ Error: ' + e.message; }
+}
+
+async function analyzeDriver() {
+  const driverId = document.getElementById('driverSelect').value;
+  const div = document.getElementById('driverAnalResult');
+  div.style.display = 'block';
+  div.textContent = '⏳ Analyzing driver performance with Groq AI...';
+  try {
+    const res = await fetch('/api/ai/driver-analysis', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ driverId, tenantId:'t001' })
+    });
+    const data = await res.json();
+    div.textContent = data.success ? data.analysis : '⚠️ Error: ' + data.error;
+    if (data.success) showToast('Driver analysis complete!', 'success');
+  } catch(e) { div.textContent = '⚠️ Error: ' + e.message; }
+}
+
+async function predictETA() {
+  const busId = document.getElementById('etaBusSelect').value;
+  const div = document.getElementById('etaResult');
+  div.style.display = 'block';
+  div.textContent = '⏳ Predicting ETA with Groq AI...';
+  try {
+    const res = await fetch('/api/ai/predict-eta', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ busId, stopName: 'School Gate' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      div.textContent = '🎯 ' + data.prediction;
+      div.style.background = '#e8f5e9';
+      showToast('ETA predicted!', 'success');
+    } else {
+      div.textContent = '⚠️ ' + data.error;
+    }
+  } catch(e) { div.textContent = '⚠️ ' + e.message; }
+}
+
+async function sendQuickSMS() {
+  const to = document.getElementById('smsTo').value;
+  const message = document.getElementById('smsBody').value;
+  const div = document.getElementById('smsResult');
+  div.style.display = 'block';
+  div.style.background = '#f0f2f5';
+  div.textContent = '⏳ Sending SMS via Twilio...';
+  try {
+    const res = await fetch('/api/notify/sms/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to, message })
+    });
+    const data = await res.json();
+    if (data.success) {
+      div.style.background = '#e8f5e9';
+      div.style.color = '#2e7d32';
+      div.textContent = '✅ SMS sent! SID: ' + (data.sid || 'OK');
+      showToast('SMS sent via Twilio!', 'success');
+    } else {
+      div.style.background = '#ffebee';
+      div.style.color = '#c62828';
+      div.textContent = '❌ ' + (data.error || 'Failed');
+    }
+  } catch(e) {
+    div.style.background = '#ffebee';
+    div.style.color = '#c62828';
+    div.textContent = '❌ Error: ' + e.message;
+  }
+}
+</script>`
+
+  return sidebarLayout('ai', 'tenant', content, 'AI Fleet Intelligence')
+}
+
+// ════════════════════════════════════════════════════════════════
+// PHONE LOGIN PAGE — Twilio OTP
+// ════════════════════════════════════════════════════════════════
+function phoneLoginPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+${sharedHead('Phone Login')}
+<style>
+  body { background:linear-gradient(135deg,#0d1b2a 0%,#1a3a5c 100%); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-card { background:#fff; border-radius:20px; padding:40px; width:100%; max-width:420px; box-shadow:0 24px 64px rgba(0,0,0,.3); }
+  .otp-input { display:flex; gap:10px; justify-content:center; margin:20px 0; }
+  .otp-input input { width:50px; height:56px; border:2px solid #e0e0e0; border-radius:10px; text-align:center; font-size:1.4rem; font-weight:700; outline:none; transition:.2s; }
+  .otp-input input:focus { border-color:#1a73e8; box-shadow:0 0 0 3px rgba(26,115,232,.15); }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div style="text-align:center;margin-bottom:28px">
+    <span style="font-size:2.8rem">🚌</span>
+    <h2 style="font-size:1.5rem;font-weight:800;color:#1a1a2e;margin:8px 0 4px">Phone Login</h2>
+    <p style="color:#666;font-size:.875rem;margin:0">Login securely with OTP via Twilio Verify</p>
+  </div>
+
+  <!-- Step 1: Enter Phone -->
+  <div id="step1">
+    <div style="background:#e8f0fe;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:.8rem;color:#1565c0">
+      <strong>📱 Drivers & Parents</strong> can login with their registered phone number
+    </div>
+    <div class="form-group">
+      <label>Mobile Number</label>
+      <div style="display:flex;gap:8px">
+        <select style="width:80px;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none">
+          <option>🇮🇳 +91</option>
+        </select>
+        <input type="tel" id="phoneInput" placeholder="9XXXXXXXXX" style="flex:1" maxlength="10" oninput="this.value=this.value.replace(/\\D/g,'')">
+      </div>
+    </div>
+    <button onclick="sendOTP()" id="sendOtpBtn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:1rem">
+      <i class="fa fa-comment-sms"></i> Send OTP
+    </button>
+    <p style="text-align:center;margin-top:16px;font-size:.8rem;color:#666">
+      <a href="/login" style="color:#1a73e8">← Login with Email</a>
+    </p>
+  </div>
+
+  <!-- Step 2: Enter OTP -->
+  <div id="step2" style="display:none">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="font-size:2rem">📲</div>
+      <p style="color:#333;font-size:.875rem">OTP sent to <strong id="phoneDisplay"></strong></p>
+      <p style="color:#666;font-size:.8rem">Enter the 6-digit code from Twilio</p>
+    </div>
+    <div class="otp-input" id="otpBoxes">
+      <input type="tel" maxlength="1" oninput="otpMove(this,0)" id="otp0">
+      <input type="tel" maxlength="1" oninput="otpMove(this,1)" id="otp1">
+      <input type="tel" maxlength="1" oninput="otpMove(this,2)" id="otp2">
+      <input type="tel" maxlength="1" oninput="otpMove(this,3)" id="otp3">
+      <input type="tel" maxlength="1" oninput="otpMove(this,4)" id="otp4">
+      <input type="tel" maxlength="1" oninput="otpMove(this,5)" id="otp5">
+    </div>
+    <button onclick="verifyOTP()" id="verifyBtn" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:1rem">
+      <i class="fa fa-shield-halved"></i> Verify OTP
+    </button>
+    <div style="text-align:center;margin-top:12px;font-size:.8rem;color:#666">
+      Didn't receive? <button onclick="resendOTP()" style="background:none;border:none;color:#1a73e8;font-weight:700;cursor:pointer;font-size:.8rem">Resend OTP</button>
+      <span id="countdown" style="color:#999"></span>
+    </div>
+    <div style="text-align:center;margin-top:8px">
+      <button onclick="goBack()" style="background:none;border:none;color:#666;cursor:pointer;font-size:.8rem">← Change number</button>
+    </div>
+  </div>
+
+  <div id="statusMsg" style="margin-top:12px;text-align:center;font-size:.82rem;display:none"></div>
+</div>
+
+${toastScript()}
+<script>
+let currentPhone = '';
+let countdown = 60;
+let timer = null;
+
+function sendOTP() {
+  const num = document.getElementById('phoneInput').value;
+  if (num.length !== 10) { showToast('Enter a valid 10-digit mobile number', 'error'); return; }
+  currentPhone = '+91' + num;
+  const btn = document.getElementById('sendOtpBtn');
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
+  btn.disabled = true;
+
+  fetch('/api/notify/otp/send', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ phone: currentPhone })
+  }).then(r => r.json()).then(data => {
+    if (data.success) {
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+      document.getElementById('phoneDisplay').textContent = currentPhone;
+      document.getElementById('otp0').focus();
+      showToast('OTP sent via Twilio SMS!', 'success');
+      startCountdown();
+    } else {
+      showToast('Failed: ' + data.error, 'error');
+      btn.innerHTML = '<i class="fa fa-comment-sms"></i> Send OTP';
+      btn.disabled = false;
+    }
+  }).catch(e => {
+    showToast('Error: ' + e.message, 'error');
+    btn.innerHTML = '<i class="fa fa-comment-sms"></i> Send OTP';
+    btn.disabled = false;
+  });
+}
+
+function otpMove(input, idx) {
+  input.value = input.value.replace(/\\D/g, '');
+  if (input.value && idx < 5) document.getElementById('otp' + (idx+1)).focus();
+  if (idx === 5 && input.value) verifyOTP();
+}
+
+function getOTPCode() {
+  return [0,1,2,3,4,5].map(i => document.getElementById('otp'+i).value).join('');
+}
+
+function verifyOTP() {
+  const code = getOTPCode();
+  if (code.length !== 6) { showToast('Enter all 6 digits', 'error'); return; }
+  const btn = document.getElementById('verifyBtn');
+  btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Verifying...';
+  btn.disabled = true;
+
+  fetch('/api/notify/otp/verify', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ phone: currentPhone, code })
+  }).then(r => r.json()).then(data => {
+    if (data.success && data.valid) {
+      localStorage.setItem('ts_token', data.token);
+      localStorage.setItem('ts_role', data.role);
+      localStorage.setItem('ts_name', data.name);
+      showToast('✅ Verified! Redirecting...', 'success');
+      setTimeout(() => {
+        const routes = { driver:'/driver', parent:'/parent', tenant_admin:'/admin' };
+        window.location.href = routes[data.role] || '/';
+      }, 1000);
+    } else {
+      showToast('Invalid OTP. Please try again.', 'error');
+      [0,1,2,3,4,5].forEach(i => document.getElementById('otp'+i).value = '');
+      document.getElementById('otp0').focus();
+      btn.innerHTML = '<i class="fa fa-shield-halved"></i> Verify OTP';
+      btn.disabled = false;
+    }
+  });
+}
+
+function goBack() {
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step1').style.display = 'block';
+  const btn = document.getElementById('sendOtpBtn');
+  btn.innerHTML = '<i class="fa fa-comment-sms"></i> Send OTP';
+  btn.disabled = false;
+  if (timer) clearInterval(timer);
+}
+
+function startCountdown() {
+  countdown = 60;
+  const el = document.getElementById('countdown');
+  el.textContent = ' (' + countdown + 's)';
+  if (timer) clearInterval(timer);
+  timer = setInterval(() => {
+    countdown--;
+    el.textContent = countdown > 0 ? ' (' + countdown + 's)' : '';
+    if (countdown <= 0) clearInterval(timer);
+  }, 1000);
+}
+
+function resendOTP() {
+  if (countdown > 0) { showToast('Please wait ' + countdown + 's', 'warning'); return; }
+  sendOTP();
+}
+</script>
+</body></html>`
+}
+
+// ════════════════════════════════════════════════════════════════
+// NOTIFICATIONS TEST CONSOLE
+// ════════════════════════════════════════════════════════════════
+function notifyConsolePage(): string {
+  const content = `
+<div class="grid-2" style="gap:20px">
+
+  <!-- SMS Panel -->
+  <div class="card">
+    <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700"><i class="fa fa-comment-sms" style="color:#1a73e8;margin-right:8px"></i>Twilio SMS Console</h3>
+    
+    <div class="tab-nav" id="smsTabs">
+      <button class="tab-btn active" onclick="switchSmsTab('custom',this)">Custom SMS</button>
+      <button class="tab-btn" onclick="switchSmsTab('sos',this)">SOS Alert</button>
+      <button class="tab-btn" onclick="switchSmsTab('delay',this)">Delay Alert</button>
+      <button class="tab-btn" onclick="switchSmsTab('arrival',this)">Arrival</button>
+    </div>
+
+    <div id="smsCustom">
+      <div class="form-group"><label>To (Phone)</label><input type="tel" id="customTo" value="+919121664855" placeholder="+91XXXXXXXXXX"></div>
+      <div class="form-group"><label>Message</label><textarea id="customMsg" rows="4" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none;resize:none">🚌 TrackSchool Alert: Bus Alpha is 10 minutes away from Rohini Sec-7. Track live at trackschool.io/parent</textarea></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span id="smsCharCount" style="font-size:.75rem;color:#666">0/160 chars</span></div>
+      <button class="btn btn-primary" onclick="sendCustomSMS()" style="width:100%;justify-content:center"><i class="fa fa-paper-plane"></i> Send via Twilio</button>
+    </div>
+
+    <div id="smsSOS" style="display:none">
+      <div class="alert-banner critical" style="margin-bottom:12px"><i class="fa fa-triangle-exclamation"></i>This will trigger LIVE SOS SMS to driver's emergency contact</div>
+      <div class="form-group"><label>Bus</label><select id="sosBus" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none"><option value="b001">Bus Alpha — Rajesh Kumar</option><option value="b003">Bus Gamma — Mohan Lal</option><option value="b004">Bus Delta — Vikram Singh</option></select></div>
+      <button class="btn btn-danger" onclick="sendSOSSMS()" style="width:100%;justify-content:center"><i class="fa fa-triangle-exclamation"></i> Trigger SOS SMS</button>
+    </div>
+
+    <div id="smsDelay" style="display:none">
+      <div class="form-group"><label>Bus</label><select id="delayBus" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none"><option value="b001">Bus Alpha</option><option value="b004">Bus Delta</option></select></div>
+      <div class="form-group"><label>Delay (minutes)</label><input type="number" id="delayMins" value="10" min="1" max="60"></div>
+      <button class="btn" style="width:100%;justify-content:center;background:#ff9800;color:#fff" onclick="sendDelaySMS()"><i class="fa fa-clock"></i> Send Delay SMS to Parents</button>
+    </div>
+
+    <div id="smsArrival" style="display:none">
+      <div class="form-group"><label>Student</label><select id="arrivalStudent" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none"><option value="st001">Aarav Sharma → Ashok Sharma</option><option value="st002">Diya Gupta → Priya Gupta</option><option value="st009">Rhea Fernandez → Carlos Fernandez</option></select></div>
+      <div class="form-group"><label>Stop Name</label><input type="text" id="arrivalStop" value="Rohini Sec-7"></div>
+      <div class="form-group"><label>ETA (minutes)</label><input type="number" id="arrivalETA" value="10"></div>
+      <button class="btn btn-success" style="width:100%;justify-content:center" onclick="sendArrivalSMS()"><i class="fa fa-location-dot"></i> Send Arrival SMS</button>
+    </div>
+
+    <div id="smsLog" style="margin-top:16px;max-height:200px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Email + OTP Panel -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+
+    <!-- OTP Verify -->
+    <div class="card">
+      <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700"><i class="fa fa-shield-halved" style="color:#00c853;margin-right:8px"></i>Twilio OTP Verify Console</h3>
+      <div class="form-group"><label>Phone Number</label><input type="tel" id="otpPhone" value="+919121664855"></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn btn-primary btn-sm" style="flex:1;justify-content:center" onclick="consoleOTPSend()"><i class="fa fa-comment-sms"></i> Send OTP</button>
+        <a href="/login/phone" class="btn btn-outline btn-sm" style="flex:1;justify-content:center;text-decoration:none"><i class="fa fa-mobile"></i> OTP Login Page</a>
+      </div>
+      <div class="form-group" style="margin-bottom:8px"><label>Enter OTP to Verify</label>
+        <div style="display:flex;gap:8px"><input type="text" id="otpCode" placeholder="6-digit OTP" maxlength="6" style="flex:1"><button class="btn btn-success btn-sm" onclick="consoleOTPVerify()">Verify</button></div>
+      </div>
+      <div id="otpLog"></div>
+    </div>
+
+    <!-- Email Console -->
+    <div class="card">
+      <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700"><i class="fa fa-envelope" style="color:#ff9800;margin-right:8px"></i>Gmail SMTP Console</h3>
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchEmailTab('custom',this)">Custom</button>
+        <button class="tab-btn" onclick="switchEmailTab('welcome',this)">Welcome</button>
+        <button class="tab-btn" onclick="switchEmailTab('alert',this)">Alert</button>
+        <button class="tab-btn" onclick="switchEmailTab('report',this)">Report</button>
+      </div>
+
+      <div id="emailCustom">
+        <div class="form-group"><label>To</label><input type="email" id="emailTo" value="ekodecrux@gmail.com"></div>
+        <div class="form-group"><label>Subject</label><input type="text" id="emailSubject" value="TrackSchool Test Email"></div>
+        <div class="form-group"><label>Body</label><textarea id="emailBody" rows="3" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none;resize:none">Hello from TrackSchool! Your GPS tracking platform is live and operational.</textarea></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="sendCustomEmail()"><i class="fa fa-envelope"></i> Send Email</button>
+      </div>
+      <div id="emailWelcome" style="display:none">
+        <div class="form-group"><label>Tenant</label><select id="welcomeTenant" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none"><option value="t001">Delhi Public School</option><option value="t002">St. Mary's Convent</option><option value="t003">Kendriya Vidyalaya</option></select></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="sendWelcomeEmail()"><i class="fa fa-handshake"></i> Send Welcome Email</button>
+      </div>
+      <div id="emailAlert" style="display:none">
+        <div class="form-group"><label>Alert</label><select id="alertSelect" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none"><option value="al001">al001 - Bus Delta Delay</option><option value="al005">al005 - SOS Alert</option><option value="al003">al003 - Speeding</option></select></div>
+        <button class="btn btn-danger" style="width:100%;justify-content:center" onclick="sendAlertEmail()"><i class="fa fa-bell"></i> Send Alert Email</button>
+      </div>
+      <div id="emailReport" style="display:none">
+        <div class="alert-banner info" style="margin-bottom:10px"><i class="fa fa-info-circle"></i>Sends AI-generated daily report to school admin</div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="sendReportEmail()"><i class="fa fa-chart-bar"></i> Send Daily Report Email</button>
+      </div>
+
+      <div id="emailLog" style="margin-top:12px;max-height:150px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Service Status -->
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:1rem;font-weight:700"><i class="fa fa-circle-check" style="color:#00c853;margin-right:8px"></i>Integration Status</h3>
+      <div id="integrationStatus"></div>
+      <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%;justify-content:center" onclick="checkStatus()"><i class="fa fa-refresh"></i> Refresh Status</button>
+    </div>
+  </div>
+</div>
+
+${toastScript()}
+<script>
+// Tab switching
+function switchSmsTab(tab, btn) {
+  ['custom','sos','delay','arrival'].forEach(t => document.getElementById('sms'+t.charAt(0).toUpperCase()+t.slice(1)).style.display = t===tab?'block':'none');
+  document.querySelectorAll('#smsTabs .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function switchEmailTab(tab, btn) {
+  ['custom','welcome','alert','report'].forEach(t => document.getElementById('email'+t.charAt(0).toUpperCase()+t.slice(1)).style.display = t===tab?'block':'none');
+  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function logSMS(msg, type='success') {
+  const el = document.getElementById('smsLog');
+  const d = document.createElement('div');
+  const colors = {success:'#e8f5e9',error:'#ffebee',info:'#e3f2fd'};
+  d.style.cssText = 'background:'+colors[type]+';padding:8px 12px;border-radius:6px;font-size:.75rem;margin-top:6px';
+  d.innerHTML = new Date().toLocaleTimeString('en-IN') + ' — ' + msg;
+  el.prepend(d);
+}
+function logEmail(msg, type='success') {
+  const el = document.getElementById('emailLog');
+  const d = document.createElement('div');
+  const colors = {success:'#e8f5e9',error:'#ffebee',info:'#e3f2fd'};
+  d.style.cssText = 'background:'+colors[type]+';padding:8px 12px;border-radius:6px;font-size:.75rem;margin-top:6px';
+  d.innerHTML = new Date().toLocaleTimeString('en-IN') + ' — ' + msg;
+  el.prepend(d);
+}
+
+async function sendCustomSMS() {
+  const to = document.getElementById('customTo').value;
+  const message = document.getElementById('customMsg').value;
+  logSMS('Sending to '+to+'...','info');
+  const res = await fetch('/api/notify/sms/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to,message})});
+  const d = await res.json();
+  if(d.success){logSMS('✅ Sent! SID: '+d.sid);showToast('SMS sent!','success');}
+  else{logSMS('❌ '+d.error,'error');showToast('SMS failed: '+d.error,'error');}
+}
+
+async function sendSOSSMS() {
+  const busId = document.getElementById('sosBus').value;
+  logSMS('Triggering SOS for '+busId+'...','info');
+  const res = await fetch('/api/notify/sms/sos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busId,driverId:'d001'})});
+  const d = await res.json();
+  if(d.success){logSMS('🚨 SOS sent to '+d.results.length+' contacts');showToast('SOS triggered!','error');}
+  else{logSMS('❌ '+d.error,'error');}
+}
+
+async function sendDelaySMS() {
+  const busId = document.getElementById('delayBus').value;
+  const delayMinutes = document.getElementById('delayMins').value;
+  logSMS('Sending delay alerts for bus '+busId+'...','info');
+  const res = await fetch('/api/notify/sms/delay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({busId,delayMinutes,tenantId:'t001'})});
+  const d = await res.json();
+  if(d.success){logSMS('⏱️ Delay SMS sent to '+d.notified+' parents');showToast('Delay SMS sent!','warning');}
+  else{logSMS('❌ '+d.error,'error');}
+}
+
+async function sendArrivalSMS() {
+  const studentId = document.getElementById('arrivalStudent').value;
+  const stopName = document.getElementById('arrivalStop').value;
+  const eta = document.getElementById('arrivalETA').value;
+  logSMS('Sending arrival SMS...','info');
+  const res = await fetch('/api/notify/sms/arrival',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({studentId,stopName,eta,busNickname:'Bus Alpha'})});
+  const d = await res.json();
+  if(d.success){logSMS('📍 Arrival SMS sent to '+d.parentPhone);showToast('Arrival SMS sent!','success');}
+  else{logSMS('❌ '+d.error,'error');}
+}
+
+async function consoleOTPSend() {
+  const phone = document.getElementById('otpPhone').value;
+  const res = await fetch('/api/notify/otp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone})});
+  const d = await res.json();
+  const el = document.getElementById('otpLog');
+  if(d.success){el.innerHTML='<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;font-size:.78rem">✅ OTP sent to '+phone+' (Status: '+d.status+')</div>';showToast('OTP sent!','success');}
+  else{el.innerHTML='<div style="background:#ffebee;padding:8px 12px;border-radius:6px;font-size:.78rem">❌ '+d.error+'</div>';showToast('OTP failed','error');}
+}
+
+async function consoleOTPVerify() {
+  const phone = document.getElementById('otpPhone').value;
+  const code = document.getElementById('otpCode').value;
+  const res = await fetch('/api/notify/otp/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,code})});
+  const d = await res.json();
+  const el = document.getElementById('otpLog');
+  if(d.success&&d.valid){el.innerHTML='<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;font-size:.78rem">✅ OTP Verified! Role: '+d.role+'</div>';showToast('OTP verified!','success');}
+  else{el.innerHTML='<div style="background:#ffebee;padding:8px 12px;border-radius:6px;font-size:.78rem">❌ Invalid OTP</div>';showToast('Invalid OTP','error');}
+}
+
+async function sendCustomEmail() {
+  const to = document.getElementById('emailTo').value;
+  const subject = document.getElementById('emailSubject').value;
+  const body = document.getElementById('emailBody').value;
+  logEmail('Sending to '+to+'...','info');
+  const res = await fetch('/api/notify/email/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to,subject,body})});
+  const d = await res.json();
+  if(d.success){logEmail('✅ Sent via '+d.provider);showToast('Email sent!','success');}
+  else{logEmail('❌ '+d.error,'error');}
+}
+
+async function sendWelcomeEmail() {
+  const tenantId = document.getElementById('welcomeTenant').value;
+  logEmail('Sending welcome email...','info');
+  const res = await fetch('/api/notify/email/welcome',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId})});
+  const d = await res.json();
+  if(d.success){logEmail('✅ Welcome email sent to '+d.to);showToast('Welcome email sent!','success');}
+  else{logEmail('❌ '+d.error,'error');}
+}
+
+async function sendAlertEmail() {
+  const alertId = document.getElementById('alertSelect').value;
+  logEmail('Sending alert email...','info');
+  const res = await fetch('/api/notify/email/alert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alertId,tenantId:'t001'})});
+  const d = await res.json();
+  if(d.success){logEmail('✅ Alert email sent');showToast('Alert email sent!','success');}
+  else{logEmail('❌ '+d.error,'error');}
+}
+
+async function sendReportEmail() {
+  logEmail('Generating AI report and sending...','info');
+  const aiRes = await fetch('/api/ai/daily-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001'})});
+  const aiData = await aiRes.json();
+  const res = await fetch('/api/notify/email/daily-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',summary:aiData.success?aiData.summary:''})});
+  const d = await res.json();
+  if(d.success){logEmail('✅ Daily report sent to '+d.to);showToast('Report sent!','success');}
+  else{logEmail('❌ '+d.error,'error');}
+}
+
+async function checkStatus() {
+  const res = await fetch('/api/notify/status');
+  const d = await res.json();
+  const el = document.getElementById('integrationStatus');
+  el.innerHTML = Object.entries(d.services).map(([key,svc]) => \`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8f9fa;border-radius:8px;margin-bottom:6px">
+      <span style="color:#00c853;font-size:1rem">●</span>
+      <div>
+        <div style="font-weight:700;font-size:.875rem">\${svc.provider}</div>
+        <div style="font-size:.72rem;color:#666">\${svc.features.join(' · ')}</div>
+      </div>
+      <span class="badge active" style="margin-left:auto">\${svc.status}</span>
+    </div>
+  \`).join('');
+}
+
+// SMS char counter
+document.getElementById('customMsg').addEventListener('input', function() {
+  document.getElementById('smsCharCount').textContent = this.value.length + '/160 chars';
+});
+
+checkStatus();
+</script>`
+
+  return sidebarLayout('notify', 'tenant', content, 'Notifications Console')
 }
