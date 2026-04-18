@@ -1,189 +1,153 @@
-# 🚌 TrackSchool — GPS Fleet SaaS Platform
+# TrackSchool — GPS School Bus Tracking Platform
 
-> ERP-Integrated School Transport Intelligence with Groq AI, Twilio SMS/OTP & Gmail Email
-
-[![GitHub](https://img.shields.io/badge/GitHub-ekodecrux%2Fgpstrackinggen-blue?logo=github)](https://github.com/ekodecrux/gpstrackinggen)
-[![Stack](https://img.shields.io/badge/Stack-Hono%20%2B%20Cloudflare%20Workers-orange)](https://hono.dev)
-[![AI](https://img.shields.io/badge/AI-Groq%20Llama%203.3%2070B-green)](https://groq.com)
-
----
-
-## 🌐 Live Demo
-| URL | Description |
-|-----|-------------|
-| `/` | Landing page + pricing |
-| `/login` | Email login (demo123) |
-| `/login/phone` | Phone OTP login (Twilio Verify) |
-| `/superadmin` | Super Admin dashboard |
-| `/admin` | School Admin dashboard |
-| `/tracking` | Live GPS map (Leaflet + OpenStreetMap) |
-| `/driver` | Driver PWA with SOS button |
-| `/parent` | Parent portal |
-| `/admin/ai` | Groq AI Fleet Assistant |
-| `/notify-console` | SMS / OTP / Email test console |
-| `/erp-docs` | ERP REST API documentation |
-
----
-
-## 🔑 Demo Credentials
-| Role | Email | Password |
-|------|-------|----------|
-| Super Admin | superadmin@trackschool.io | demo123 |
-| School Admin | admin@dps.edu.in | demo123 |
-| Driver | driver@dps.edu.in | demo123 |
-| Parent | parent@dps.edu.in | demo123 |
+## 🌐 Production URLs
+- **Live App**: https://trackschool.pages.dev
+- **GitHub**: https://github.com/ekodecrux/gpstrackinggen
+- **Cloudflare Dashboard**: https://dash.cloudflare.com (project: trackschool)
 
 ---
 
 ## ✅ Completed Features
 
-### Core Platform
-- **Multi-tenant SaaS** — 5 tenants (schools), 7 buses, role-based access
-- **Super Admin** — tenant onboarding, billing/MRR charts, analytics, platform settings
-- **School Admin** — buses, drivers, students, routes, alerts, reports, settings
-- **Live Tracking** — full-screen Leaflet/OpenStreetMap map, 3s GPS simulation, satellite toggle
-- **Driver PWA** — active/pre-trip views, stop list, SOS panic button (wired to Twilio)
-- **Parent Portal** — live child tracking, journey timeline, notifications, trip history
-- **ERP API Docs** — interactive console with 14 REST endpoints + webhook docs
-- **Per-bus Pricing** — ₹299 / ₹249 / ₹199 per bus/month tiers
+### Super Admin
+- **Dashboard** — MRR/ARR KPIs, fleet distribution charts, recent activity
+- **Tenant Management** — Add, edit, activate/deactivate school tenants (full CRUD modal)
+- **Billing** — Invoice generation, Razorpay payment buttons, mark-paid, PDF print, revenue charts
+- **Analytics** — Bus distribution by city, revenue by plan (pie chart), monthly trend (line chart)
+- **Settings** — Tracking config, notification provider config, security/JWT settings (all saved)
 
-### 🤖 Groq AI Integration (`/api/ai/*`)
-| Endpoint | Description |
-|----------|-------------|
-| `POST /api/ai/chat` | Fleet intelligence chat (Llama 3.3 70B) |
-| `POST /api/ai/optimize-route` | AI route optimization analysis |
-| `POST /api/ai/driver-analysis` | Driver performance scoring |
-| `POST /api/ai/analyze-alerts` | Alert intelligence report |
-| `POST /api/ai/predict-eta` | AI ETA prediction |
-| `POST /api/ai/daily-summary` | Daily operations summary |
+### Tenant Admin (School)
+- **Dashboard** — Active buses, students today, routes, alerts, live map link
+- **Bus Management** — Add/Edit/Delete buses with GPS device & driver assignment
+- **Driver Management** — Add/Edit/Delete drivers with license, phone, emergency contact
+- **Student Management** — Add/Edit/Delete students with RFID, parent contact, bus/route/stop
+- **Route Management** — Add/Edit routes with distance, duration, color coding
+- **Alerts** — View, filter, resolve individual/all alerts
+- **Reports** — Weekly trip chart, driver performance chart, trip history table, CSV/PDF export
+- **AI Assistant** — Groq Llama 3.3 70B powered summaries, anomaly detection, recommendations
+- **Settings** — School profile, notification preferences (all saved)
+- **Billing** — Razorpay plan upgrade, payment history, subscription status
 
-### 📱 Twilio SMS (`/api/notify/sms/*`)
-| Endpoint | Description |
-|----------|-------------|
-| `POST /sms/send` | Custom SMS to any number |
-| `POST /sms/sos` | SOS panic → emergency contacts + admin |
-| `POST /sms/arrival` | Bus arriving at stop → parent |
-| `POST /sms/delay` | Delay alert → all parents on bus |
+### Tracking & Portals
+- **Live Tracking** — Leaflet map with real-time bus locations, popups, speed/fuel
+- **Driver App** — Trip start/end, SOS alert trigger, location sharing
+- **Parent Portal** — Student tracking, arrival notifications, phone-based OTP login
 
-### 🔐 Twilio Verify OTP (`/api/notify/otp/*`)
-| Endpoint | Description |
-|----------|-------------|
-| `POST /otp/send` | Send 6-digit OTP via SMS |
-| `POST /otp/verify` | Verify OTP → JWT + role redirect |
+### Notifications (All LIVE in production)
+- **SMS** — Twilio Messaging API: SOS alerts, arrival, delay, custom
+- **OTP** — Twilio Verify: phone login for drivers and parents
+- **Email** — MailChannels (Cloudflare Workers production), Gmail SMTP fallback
+- **SOS** — Sends dual SMS: emergency contact + admin phone
 
-### 📧 Email (`/api/notify/email/*`)
-| Endpoint | Description |
-|----------|-------------|
-| `POST /email/send` | Custom email |
-| `POST /email/welcome` | New tenant onboarding email |
-| `POST /email/alert` | Alert notification to school admin |
-| `POST /email/daily-report` | AI-generated daily summary email |
+### Payments
+- **Razorpay** — Order creation, HMAC-SHA256 verification, webhook handling
+- **Plans** — Starter ₹299/bus, Growth ₹249/bus, Enterprise ₹199/bus
+- **Invoice Pay** — Razorpay checkout wired into SuperAdmin billing
 
 ---
 
-## 🔧 Tech Stack
-- **Backend:** Hono 4 on Cloudflare Workers (edge-first)
-- **Frontend:** Tailwind CSS CDN + Chart.js + Leaflet.js + FontAwesome
-- **Maps:** OpenStreetMap (zero cost) via Leaflet.js
-- **AI:** Groq API — Llama 3.3 70B Versatile (ultra-fast inference)
-- **SMS/OTP:** Twilio Messaging + Twilio Verify
-- **Email:** MailChannels (free on CF Workers) + Gmail SMTP fallback
-- **Build:** Vite + @hono/vite-cloudflare-pages
-- **Runtime:** Cloudflare Pages + Workers
+## 🔑 Environment Variables (Cloudflare Secrets — all set)
+
+| Variable | Description |
+|---|---|
+| GROQ_API_KEY | Groq LLM API key |
+| GROQ_MODEL | llama-3.3-70b-versatile |
+| TWILIO_ACCOUNT_SID | (set as secret — starts with AC...) |
+| TWILIO_AUTH_TOKEN | (set as secret) |
+| TWILIO_VERIFY_SERVICE_SID | (set as secret — starts with VA...) |
+| TWILIO_FROM_NUMBER | +16202209833 |
+| SMTP_HOST | smtp.gmail.com |
+| SMTP_PORT | 587 |
+| SMTP_USER | ekodecrux@gmail.com |
+| SMTP_PASS | (set as secret) |
+| SMTP_FROM | TrackSchool \<ekodecrux@gmail.com\> |
+| ADMIN_PHONE | +919121664855 |
+| RAZORPAY_KEY_ID | (set as secret — rzp_test_...) |
+| RAZORPAY_KEY_SECRET | (set as secret) |
 
 ---
 
-## ⚙️ Configuration (`.dev.vars`)
+## 🔗 Key API Endpoints
 
-```env
-# Groq AI — https://console.groq.com
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
+### Auth
+- `POST /api/auth/login` — email/password login (returns token + role)
 
-# Twilio — https://console.twilio.com
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=<get from Twilio Console → Account Info>
-TWILIO_VERIFY_SERVICE_SID=VAxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_FROM_NUMBER=<your Twilio purchased number e.g. +12025551234>
+### Buses
+- `GET /api/buses?tenantId=t001`
+- `POST /api/buses` — Add bus
+- `PUT /api/buses/:id` — Edit bus
+- `DELETE /api/buses/:id` — Delete bus
+- `GET /api/buses/:id/location` — Live GPS location
 
-# Gmail SMTP (App Password)
-SMTP_USER=your@gmail.com
-SMTP_PASS=<16-char Gmail App Password>
+### Drivers / Students / Routes / Tenants
+- Full CRUD: GET, POST, PUT, DELETE for each resource
 
-# Admin contact for SOS alerts
-ADMIN_PHONE=+91XXXXXXXXXX
-```
+### Notifications
+- `POST /api/notify/sms/send` — Custom SMS
+- `POST /api/notify/sms/sos` — SOS alert (dual SMS)
+- `POST /api/notify/sms/arrival` — Arrival notification
+- `POST /api/notify/otp/send` — Send OTP via Twilio Verify
+- `POST /api/notify/otp/verify` — Verify OTP code
+- `POST /api/notify/email/welcome` — Welcome email
+- `GET /api/notify/status` — Integration health check
 
-> ⚠️ **To activate SMS/OTP:** Get your `TWILIO_AUTH_TOKEN` from [Twilio Console](https://console.twilio.com) under **Account Info**. Also add a purchased Twilio phone number as `TWILIO_FROM_NUMBER`.
+### Payments
+- `GET /api/pay/plans` — Subscription plans
+- `POST /api/pay/order` — Create Razorpay order
+- `POST /api/pay/verify` — Verify payment signature
+- `POST /api/pay/webhook` — Razorpay webhook handler
+- `GET /api/pay/history/:tenantId` — Payment history
+- `GET /api/pay/subscription/:tenantId` — Current subscription
 
----
-
-## 🚀 Local Development
-
-```bash
-# Install
-npm install
-
-# Build
-npm run build
-
-# Start (PM2)
-pm2 start ecosystem.config.cjs
-
-# Visit
-open http://localhost:3000
-```
+### AI
+- `POST /api/ai/summary` — Daily ops summary (Groq)
+- `POST /api/ai/chat` — Free-form AI assistant
+- `POST /api/ai/anomaly` — Anomaly detection
 
 ---
 
-## 📦 Cloudflare Deployment
+## 👤 Demo Login Credentials
 
-```bash
-# Deploy to production
-npm run deploy
-
-# Set secrets
-npx wrangler pages secret put GROQ_API_KEY --project-name gpstrackinggen
-npx wrangler pages secret put TWILIO_ACCOUNT_SID --project-name gpstrackinggen
-npx wrangler pages secret put TWILIO_AUTH_TOKEN --project-name gpstrackinggen
-npx wrangler pages secret put TWILIO_VERIFY_SERVICE_SID --project-name gpstrackinggen
-npx wrangler pages secret put TWILIO_FROM_NUMBER --project-name gpstrackinggen
-npx wrangler pages secret put SMTP_USER --project-name gpstrackinggen
-npx wrangler pages secret put SMTP_PASS --project-name gpstrackinggen
-npx wrangler pages secret put ADMIN_PHONE --project-name gpstrackinggen
-```
+| Role | Email | Password |
+|---|---|---|
+| Super Admin | superadmin@trackschool.io | demo123 |
+| School Admin (DPS) | admin@dps.edu | demo123 |
+| School Admin (St. Mary's) | admin@stmarys.edu | demo123 |
+| Driver | driver@trackschool.io | demo123 |
+| Parent | parent@trackschool.io | demo123 |
 
 ---
 
-## 📋 Remaining / Next Steps
-
-- [ ] Add Cloudflare D1 database to replace mock data
-- [ ] Real-time WebSocket GPS via Cloudflare Durable Objects
-- [ ] Stripe per-bus subscription billing
-- [ ] RFID student boarding event integration
-- [ ] White-label custom domain per tenant
-- [ ] Push notifications (FCM / Web Push)
-- [ ] Mobile app (React Native / Flutter) wrapping the PWA
+## 🏗️ Tech Stack
+- **Backend**: Hono v4 (TypeScript) on Cloudflare Workers
+- **Frontend**: Vanilla JS + Tailwind CSS CDN + Leaflet.js + Chart.js
+- **AI**: Groq API (Llama 3.3 70B Versatile)
+- **SMS/OTP**: Twilio Messaging + Twilio Verify
+- **Payments**: Razorpay (test mode)
+- **Email**: MailChannels (production), Gmail SMTP (fallback)
+- **Deployment**: Cloudflare Pages
+- **Build**: Vite 6 + @hono/vite-cloudflare-pages
 
 ---
 
 ## 📁 Project Structure
 ```
-webapp/
-├── src/
-│   ├── index.tsx          # All pages (Landing, Admin, Tracking, Driver, Parent, AI…)
-│   ├── routes/
-│   │   ├── api.ts         # REST API (buses, drivers, students, ERP sync…)
-│   │   ├── groq.ts        # Groq AI endpoints
-│   │   └── notifications.ts # Twilio SMS/OTP + Email endpoints
-│   └── data/
-│       └── mockData.ts    # Mock fleet data (replace with D1 DB)
-├── public/static/         # Static assets
-├── .dev.vars              # Local secrets (NOT committed)
-├── ecosystem.config.cjs   # PM2 config
-└── wrangler.jsonc         # Cloudflare Pages config
+src/
+  index.tsx          — Main app (3400+ lines, all pages + UI)
+  routes/
+    api.ts           — REST API (buses, drivers, students, tenants, CRUD)
+    notifications.ts — Twilio SMS/OTP + MailChannels email
+    groq.ts          — Groq AI routes
+    razorpay.ts      — Razorpay payment routes
+  data/
+    mockData.ts      — Seed data for buses, drivers, students, tenants
+public/
+  static/
+    style.css        — Custom styles
 ```
 
----
-
-*© 2025 TrackSchool Technologies Pvt. Ltd. | Made with ❤️ in India*
+## 🚀 Deployment
+- **Platform**: Cloudflare Pages
+- **Status**: ✅ LIVE
+- **Last Deployed**: 2026-04-18
+- **Production URL**: https://trackschool.pages.dev
