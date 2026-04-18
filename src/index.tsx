@@ -3,6 +3,7 @@ import { serveStatic } from 'hono/cloudflare-workers'
 import api from './routes/api'
 import groqRoutes from './routes/groq'
 import notifRoutes from './routes/notifications'
+import payRoutes from './routes/razorpay'
 
 type Bindings = {
   GROQ_API_KEY: string; GROQ_MODEL: string
@@ -10,6 +11,7 @@ type Bindings = {
   TWILIO_VERIFY_SERVICE_SID: string; TWILIO_FROM_NUMBER: string
   SMTP_HOST: string; SMTP_PORT: string; SMTP_USER: string; SMTP_PASS: string; SMTP_FROM: string
   ADMIN_PHONE: string
+  RAZORPAY_KEY_ID: string; RAZORPAY_KEY_SECRET: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -21,6 +23,7 @@ app.use('/static/*', serveStatic({ root: './public' }))
 app.route('/api', api)
 app.route('/api/ai', groqRoutes)
 app.route('/api/notify', notifRoutes)
+app.route('/api/pay', payRoutes)
 
 // ── LANDING PAGE ──────────────────────────────────────────────
 app.get('/', (c) => c.html(landingPage()))
@@ -45,6 +48,7 @@ app.get('/admin/routes', (c) => c.html(tenantAdminPage('routes')))
 app.get('/admin/alerts', (c) => c.html(tenantAdminPage('alerts')))
 app.get('/admin/reports', (c) => c.html(tenantAdminPage('reports')))
 app.get('/admin/settings', (c) => c.html(tenantAdminPage('settings')))
+app.get('/admin/billing', (c) => c.html(tenantAdminPage('billing')))
 app.get('/admin/ai', (c) => c.html(aiAssistantPage()))
 
 // ── LIVE TRACKING ─────────────────────────────────────────────
@@ -221,6 +225,7 @@ function sidebarLayout(activePage: string, role: 'super' | 'tenant', content: st
     <a href="/admin/reports" class="${activePage==='reports'?'active':''}"><i class="fa fa-file-lines"></i> Reports</a>
     <a href="/admin/ai" class="${activePage==='ai'?'active':''}"><i class="fa fa-robot"></i> AI Assistant <span style="background:linear-gradient(135deg,#1a73e8,#00c853);color:#fff;border-radius:10px;padding:1px 7px;font-size:.65rem;margin-left:auto">Groq</span></a>
     <a href="/notify-console" class="${activePage==='notify'?'active':''}"><i class="fa fa-bell"></i> Notifications</a>
+    <a href="/admin/billing" class="${activePage==='billing'?'active':''}"><i class="fa fa-credit-card"></i> Billing & Plans <span style="background:#00c853;color:#fff;border-radius:10px;padding:1px 7px;font-size:.65rem;margin-left:auto">Razorpay</span></a>
     <div class="section-title">Switch View</div>
     <a href="/superadmin"><i class="fa fa-crown"></i> Super Admin</a>
     <a href="/driver"><i class="fa fa-mobile"></i> Driver App</a>
@@ -969,6 +974,7 @@ function superAdminBilling(): string {
 </div>
 
 ${toastScript()}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
 const tenantNames = { t001:'Delhi Public School', t002:"St. Mary's Convent", t003:'Kendriya Vidyalaya #3', t004:'Ryan International', t005:'DAV Model School' };
 
@@ -983,12 +989,38 @@ async function loadBilling() {
       <td>\${inv.buses}</td>
       <td style="font-weight:700">₹\${inv.amount.toLocaleString()}</td>
       <td><span class="badge \${inv.status === 'paid' ? 'active' : inv.status === 'overdue' ? 'critical' : 'medium'}">\${inv.status}</span></td>
-      <td>
+      <td style="white-space:nowrap">
         <button class="btn btn-outline btn-sm" onclick="printInvoice('\${inv.id}','\${tenantNames[inv.tenantId]||inv.tenantId}','\${inv.amount}','\${inv.month}')"><i class="fa fa-download"></i> PDF</button>
-        \${inv.status !== 'paid' ? '<button class="btn btn-success btn-sm" onclick="markInvoicePaid(\''+inv.id+'\')" style="margin-left:4px"><i class="fa fa-check"></i> Mark Paid</button>' : ''}
+        \${inv.status !== 'paid' ? \`<button onclick="payInvoiceRzp('\${inv.id}','\${inv.tenantId}',\${inv.amount},'\${inv.month}')" style="margin-left:4px;background:linear-gradient(135deg,#00c853,#00a843);color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:.8rem"><i class="fa fa-bolt"></i> Pay</button><button class="btn btn-outline btn-sm" onclick="markInvoicePaid('\${inv.id}')" style="margin-left:4px;font-size:.75rem">Mark Paid</button>\` : '<span style="color:#2e7d32;font-size:.8rem;font-weight:700">✅ Paid</span>'}
       </td>
     </tr>
   \`).join('');
+}
+
+async function payInvoiceRzp(invoiceId, tenantId, amount, month) {
+  showToast('Opening Razorpay for '+invoiceId.toUpperCase()+'...','info');
+  try {
+    const res = await fetch('/api/pay/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amount*100,currency:'INR',invoiceId,tenantId,description:'Invoice '+invoiceId.toUpperCase()+' for '+month})});
+    const {success,order,keyId,error} = await res.json();
+    if(!success){showToast('Order failed: '+error,'error');return;}
+    const rzp = new Razorpay({
+      key:keyId,amount:order.amount,currency:order.currency,
+      name:'TrackSchool',description:'Invoice '+invoiceId.toUpperCase()+' — '+(tenantNames[tenantId]||tenantId),
+      image:'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚌</text></svg>',
+      order_id:order.id,
+      prefill:{name:tenantNames[tenantId]||tenantId,email:'admin@school.edu.in',contact:'+919121664855'},
+      theme:{color:'#1a73e8'},
+      handler:async function(response){
+        const vRes=await fetch('/api/pay/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({razorpay_order_id:response.razorpay_order_id,razorpay_payment_id:response.razorpay_payment_id,razorpay_signature:response.razorpay_signature,invoiceId,tenantId})});
+        const vData=await vRes.json();
+        if(vData.success){showToast('✅ Payment successful! '+response.razorpay_payment_id,'success');markInvoicePaid(invoiceId);}
+        else showToast('Verification failed: '+vData.error,'error');
+      },
+      modal:{ondismiss:()=>showToast('Payment cancelled','warning')}
+    });
+    rzp.on('payment.failed',r=>showToast('Payment failed: '+(r.error?.description||'Error'),'error'));
+    rzp.open();
+  } catch(e){showToast('Error: '+e.message,'error');}
 }
 
 new Chart(document.getElementById('planRevenueChart'), {
@@ -1182,6 +1214,7 @@ function tenantAdminPage(section = 'dashboard'): string {
   else if (section === 'alerts')   { title = 'Alerts & Notifications'; content = tenantAlerts() }
   else if (section === 'reports')  { title = 'Reports'; content = tenantReports() }
   else if (section === 'settings') { title = 'Settings'; content = tenantSettings() }
+  else if (section === 'billing')  { title = 'Billing & Subscription'; content = tenantBilling() }
   return sidebarLayout(section, 'tenant', content, title)
 }
 
@@ -1951,6 +1984,262 @@ async function saveNotifSettings() {
   await fetch('/api/settings/t001',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifPreferences:'saved',updatedAt:new Date().toISOString()})});
   showToast('Notification preferences saved!','success');
 }
+</script>`
+}
+
+// ════════════════════════════════════════════════════════════════
+// TENANT BILLING & RAZORPAY SUBSCRIPTION PAGE
+// ════════════════════════════════════════════════════════════════
+function tenantBilling(): string {
+  return `
+<!-- Razorpay JS SDK -->
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+<!-- Current Plan Banner -->
+<div id="currentPlanBanner" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;border-radius:16px;padding:24px 28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
+  <div>
+    <div style="font-size:.75rem;opacity:.75;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Current Plan</div>
+    <div style="font-size:1.6rem;font-weight:800" id="curPlanName">Growth Plan</div>
+    <div style="opacity:.85;margin-top:4px" id="curPlanDetail">₹249/bus/month • 12 buses active • Next billing: 18 May 2026</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="text-align:center;background:rgba(255,255,255,.15);border-radius:10px;padding:12px 20px">
+      <div style="font-size:1.8rem;font-weight:800" id="curPlanBuses">12</div>
+      <div style="font-size:.72rem;opacity:.8">Active Buses</div>
+    </div>
+    <div style="text-align:center;background:rgba(255,255,255,.15);border-radius:10px;padding:12px 20px">
+      <div style="font-size:1.8rem;font-weight:800" id="curPlanAmount">₹2,988</div>
+      <div style="font-size:.72rem;opacity:.8">Monthly Bill</div>
+    </div>
+    <div style="text-align:center;background:rgba(0,200,83,.3);border-radius:10px;padding:12px 20px">
+      <div style="font-size:.85rem;font-weight:700">✅ ACTIVE</div>
+      <div style="font-size:.72rem;opacity:.8">Status</div>
+    </div>
+  </div>
+</div>
+
+<!-- Plans Grid -->
+<h3 style="margin:0 0 16px;font-size:1rem;font-weight:700;color:#444">Choose / Upgrade Plan</h3>
+<div id="plansGrid" class="grid-3" style="margin-bottom:28px"></div>
+
+<!-- Custom Bus Count Payment -->
+<div class="card" style="margin-bottom:24px">
+  <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700"><i class="fa fa-calculator" style="color:#1a73e8;margin-right:8px"></i>Pay for Specific Bus Count</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+    <div>
+      <label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:6px">Number of Buses</label>
+      <input id="busCountInput" type="number" min="1" max="200" value="12" oninput="recalcAmount()" style="width:120px;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:1rem;outline:none;font-weight:700">
+    </div>
+    <div>
+      <label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:6px">Plan</label>
+      <select id="planSelectCustom" onchange="recalcAmount()" style="padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+        <option value="starter" data-price="299">Starter — ₹299/bus</option>
+        <option value="growth" data-price="249" selected>Growth — ₹249/bus</option>
+        <option value="enterprise" data-price="199">Enterprise — ₹199/bus</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:6px">Duration</label>
+      <select id="durationSelect" onchange="recalcAmount()" style="padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+        <option value="1">1 Month</option>
+        <option value="3">3 Months (5% off)</option>
+        <option value="6">6 Months (10% off)</option>
+        <option value="12">12 Months (15% off)</option>
+      </select>
+    </div>
+    <div style="background:#f8f9fa;border-radius:10px;padding:12px 20px;text-align:center;min-width:160px">
+      <div style="font-size:.75rem;color:#666;margin-bottom:2px">Total Amount</div>
+      <div id="calcAmount" style="font-size:1.5rem;font-weight:800;color:#1a73e8">₹2,988</div>
+      <div id="calcBreakdown" style="font-size:.72rem;color:#888;margin-top:2px">12 buses × ₹249 × 1 month</div>
+    </div>
+    <button onclick="payCustom()" style="padding:12px 28px;background:linear-gradient(135deg,#00c853,#00a843);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:8px"><i class="fa fa-bolt"></i> Pay Now</button>
+  </div>
+</div>
+
+<!-- Payment History -->
+<div class="card" style="padding:0;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between">
+    <h3 style="margin:0;font-size:1rem;font-weight:700"><i class="fa fa-clock-rotate-left" style="color:#1a73e8;margin-right:8px"></i>Payment History</h3>
+    <span id="historyCount" style="font-size:.8rem;color:#666"></span>
+  </div>
+  <div id="paymentHistoryBody" style="padding:0">
+    <div style="padding:32px;text-align:center;color:#999"><i class="fa fa-receipt" style="font-size:2rem;margin-bottom:8px;display:block"></i>No payments yet. Make your first payment above.</div>
+  </div>
+</div>
+
+${toastScript()}
+<script>
+const PLANS_DATA = {
+  starter:    { name:'Starter',    price:299, color:'#42a5f5', maxBuses:5 },
+  growth:     { name:'Growth',     price:249, color:'#1a73e8', maxBuses:20 },
+  enterprise: { name:'Enterprise', price:199, color:'#0d47a1', maxBuses:999 },
+};
+
+// Load plans grid
+async function loadPlans() {
+  const res = await fetch('/api/pay/plans');
+  const { data } = await res.json();
+  document.getElementById('plansGrid').innerHTML = data.map(plan => \`
+    <div style="border:2px solid \${plan.popular?plan.color:'#e0e0e0'};border-radius:14px;padding:24px;position:relative;background:\${plan.popular?'linear-gradient(135deg,#e3f2fd,#ffffff)':'#fff'}">
+      \${plan.popular ? '<div style="position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:'+plan.color+';color:#fff;padding:3px 16px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap">⭐ MOST POPULAR</div>' : ''}
+      <div style="font-size:1.1rem;font-weight:800;color:\${plan.color};margin-bottom:6px">\${plan.name}</div>
+      <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:4px">
+        <span style="font-size:2rem;font-weight:800;color:#1a1a2e">₹\${plan.pricePerBus}</span>
+        <span style="color:#666;font-size:.82rem">/bus/month</span>
+      </div>
+      <div style="font-size:.8rem;color:#888;margin-bottom:16px">\${plan.maxBuses === 999 ? 'Unlimited buses' : 'Up to '+plan.maxBuses+' buses'}</div>
+      <ul style="list-style:none;padding:0;margin:0 0 20px;display:flex;flex-direction:column;gap:7px">
+        \${plan.features.map(f => '<li style="font-size:.82rem;display:flex;align-items:center;gap:7px"><i class="fa fa-check-circle" style="color:#00c853"></i>'+f+'</li>').join('')}
+      </ul>
+      <button onclick="subscribePlan('\${plan.id}',\${plan.pricePerBus})" style="width:100%;padding:11px;background:\${plan.popular?plan.color:'#fff'};color:\${plan.popular?'#fff':plan.color};border:2px solid \${plan.color};border-radius:8px;cursor:pointer;font-weight:700;font-size:.9rem;transition:.2s" onmouseover="this.style.background='\${plan.color}';this.style.color='#fff'" onmouseout="this.style.background='\${plan.popular?plan.color:'#fff'}';this.style.color='\${plan.popular?'#fff':plan.color}'">
+        \${plan.popular ? '⚡ Upgrade to ' : 'Select '}\${plan.name}
+      </button>
+    </div>
+  \`).join('');
+}
+
+// Recalculate amount
+function recalcAmount() {
+  const buses = Number(document.getElementById('busCountInput').value) || 1;
+  const planSel = document.getElementById('planSelectCustom');
+  const price = Number(planSel.options[planSel.selectedIndex].dataset.price);
+  const months = Number(document.getElementById('durationSelect').value);
+  const discounts = {1:0, 3:0.05, 6:0.10, 12:0.15};
+  const discount = discounts[months] || 0;
+  const base = buses * price * months;
+  const total = Math.round(base * (1 - discount));
+  document.getElementById('calcAmount').textContent = '₹' + total.toLocaleString('en-IN');
+  document.getElementById('calcBreakdown').textContent = buses+' buses × ₹'+price+' × '+months+' month'+(months>1?'s':'')+(discount>0?' ('+Math.round(discount*100)+'% off)':'');
+  return { buses, price, months, total, planId: planSel.value };
+}
+
+// Pay custom amount
+async function payCustom() {
+  const { buses, total, planId } = recalcAmount();
+  await initiateRazorpay({
+    amount: total * 100, // paise
+    planId,
+    buses,
+    description: 'TrackSchool '+PLANS_DATA[planId].name+' Plan - '+buses+' buses',
+    tenantId: 't001',
+  });
+}
+
+// Subscribe to plan (1 month, current bus count)
+async function subscribePlan(planId, pricePerBus) {
+  const buses = 12; // current active buses
+  await initiateRazorpay({
+    amount: buses * pricePerBus * 100,
+    planId,
+    buses,
+    description: 'TrackSchool '+PLANS_DATA[planId].name+' Plan - '+buses+' buses',
+    tenantId: 't001',
+  });
+}
+
+// Core Razorpay checkout flow
+async function initiateRazorpay({ amount, planId, buses, description, tenantId, invoiceId }) {
+  showToast('Opening payment gateway...', 'info');
+  try {
+    // 1. Create order on backend
+    const res = await fetch('/api/pay/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, planId, buses, description, tenantId, invoiceId }),
+    });
+    const { success, order, keyId, error } = await res.json();
+    if (!success) { showToast('Order creation failed: ' + error, 'error'); return; }
+
+    // 2. Open Razorpay checkout
+    const options = {
+      key: keyId,
+      amount: order.amount,
+      currency: order.currency,
+      name: 'TrackSchool',
+      description: description,
+      image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚌</text></svg>',
+      order_id: order.id,
+      prefill: {
+        name: 'School Admin',
+        email: 'admin@dps.edu.in',
+        contact: '+919121664855',
+      },
+      notes: { tenantId, planId: planId || '' },
+      theme: { color: '#1a73e8' },
+      handler: async function(response) {
+        // 3. Verify on backend
+        showToast('Verifying payment...', 'info');
+        const vRes = await fetch('/api/pay/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+            invoiceId, tenantId, planId, buses,
+          }),
+        });
+        const vData = await vRes.json();
+        if (vData.success) {
+          showToast('✅ Payment successful! ID: ' + response.razorpay_payment_id, 'success');
+          loadPaymentHistory();
+          updateCurrentPlan(planId, buses);
+        } else {
+          showToast('❌ Payment verification failed: ' + vData.error, 'error');
+        }
+      },
+      modal: {
+        ondismiss: () => showToast('Payment cancelled', 'warning'),
+      },
+    };
+    const rzp = new Razorpay(options);
+    rzp.on('payment.failed', function(response) {
+      showToast('Payment failed: ' + (response.error?.description || 'Unknown error'), 'error');
+    });
+    rzp.open();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// Update current plan banner after successful payment
+function updateCurrentPlan(planId, buses) {
+  if (!planId || !PLANS_DATA[planId]) return;
+  const plan = PLANS_DATA[planId];
+  const monthly = buses * plan.price;
+  const nextDate = new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+  document.getElementById('curPlanName').textContent = plan.name + ' Plan';
+  document.getElementById('curPlanDetail').textContent = '₹'+plan.price+'/bus/month • '+buses+' buses active • Next billing: '+nextDate;
+  document.getElementById('curPlanBuses').textContent = buses;
+  document.getElementById('curPlanAmount').textContent = '₹'+monthly.toLocaleString('en-IN');
+}
+
+// Load payment history
+async function loadPaymentHistory() {
+  const res = await fetch('/api/pay/history/t001');
+  const { data, count } = await res.json();
+  document.getElementById('historyCount').textContent = count + ' transactions';
+  if (!data || data.length === 0) {
+    document.getElementById('paymentHistoryBody').innerHTML = '<div style="padding:32px;text-align:center;color:#999"><i class="fa fa-receipt" style="font-size:2rem;margin-bottom:8px;display:block"></i>No payments yet.</div>';
+    return;
+  }
+  document.getElementById('paymentHistoryBody').innerHTML = '<table style="width:100%;border-collapse:collapse">' +
+    '<thead><tr style="background:#f8f9fa"><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Payment ID</th><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Plan</th><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Buses</th><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Amount</th><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Status</th><th style="padding:10px 16px;text-align:left;font-size:.8rem;color:#666">Date</th></tr></thead>' +
+    '<tbody>' +
+    data.map(p => \`<tr style="border-top:1px solid #f0f0f0">
+      <td style="padding:12px 16px;font-size:.8rem;font-family:monospace;color:#1a73e8">\${(p.paymentId||p.orderId||'—').slice(0,20)}...</td>
+      <td style="padding:12px 16px;font-size:.85rem;font-weight:600">\${(PLANS_DATA[p.planId]?.name||p.planId||'—')}</td>
+      <td style="padding:12px 16px">\${p.buses||'—'}</td>
+      <td style="padding:12px 16px;font-weight:700;color:#1a73e8">₹\${p.amount ? (p.amount/100).toLocaleString('en-IN') : '—'}</td>
+      <td style="padding:12px 16px"><span style="background:\${p.status==='paid'?'#e8f5e9':p.status==='failed'?'#ffebee':'#fff3e0'};color:\${p.status==='paid'?'#2e7d32':p.status==='failed'?'#c62828':'#e65100'};padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:700">\${p.status?.toUpperCase()||'PENDING'}</span></td>
+      <td style="padding:12px 16px;font-size:.8rem;color:#666">\${p.paidAt ? new Date(p.paidAt).toLocaleString('en-IN') : new Date(p.createdAt||Date.now()).toLocaleString('en-IN')}</td>
+    </tr>\`).join('') +
+    '</tbody></table>';
+}
+
+recalcAmount();
+loadPlans();
+loadPaymentHistory();
 </script>`
 }
 
