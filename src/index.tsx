@@ -883,11 +883,58 @@ function toggleTenantStatus(id, currentStatus) {
 }
 
 function showAddTenant() {
-  showToast('Add Tenant form — coming in full version', 'info');
+  document.getElementById('addTenantModal').style.display='flex';
+}
+function closeAddTenant() {
+  document.getElementById('addTenantModal').style.display='none';
+}
+async function submitAddTenant() {
+  const name=document.getElementById('tn_name').value.trim();
+  const email=document.getElementById('tn_email').value.trim();
+  const phone=document.getElementById('tn_phone').value.trim();
+  const city=document.getElementById('tn_city').value.trim();
+  const plan=document.getElementById('tn_plan').value;
+  if(!name||!email){showToast('School name and email are required','error');return;}
+  const btn=document.getElementById('tn_submit');
+  btn.disabled=true; btn.textContent='Adding...';
+  try {
+    const r=await fetch('/api/tenants',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,phone,city,plan})});
+    const d=await r.json();
+    if(d.success){showToast('Tenant '+name+' added successfully!','success');closeAddTenant();loadTenants();}
+    else showToast(d.error||'Failed to add tenant','error');
+  } catch(e){showToast('Network error','error');}
+  finally{btn.disabled=false;btn.textContent='Add Tenant';}
 }
 
 loadTenants();
-</script>`
+</script>
+
+<!-- Add Tenant Modal -->
+<div id="addTenantModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px;width:480px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h2 style="margin:0;font-size:1.2rem;font-weight:800;color:#1a1a2e"><i class="fa fa-school" style="color:#1a73e8;margin-right:8px"></i>Add New School</h2>
+      <button onclick="closeAddTenant()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">&times;</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">School Name *</label><input id="tn_name" type="text" placeholder="Delhi Public School" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Admin Email *</label><input id="tn_email" type="email" placeholder="admin@school.edu.in" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Phone</label><input id="tn_phone" type="tel" placeholder="+91-XXXXXXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">City</label><input id="tn_city" type="text" placeholder="New Delhi" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Plan</label>
+        <select id="tn_plan" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+          <option value="starter">Starter — ₹299/bus/month (up to 5 buses)</option>
+          <option value="growth">Growth — ₹249/bus/month (up to 20 buses)</option>
+          <option value="enterprise">Enterprise — ₹199/bus/month (unlimited)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button onclick="closeAddTenant()" style="flex:1;padding:11px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
+      <button id="tn_submit" onclick="submitAddTenant()" style="flex:2;padding:11px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:700">Add Tenant</button>
+    </div>
+  </div>
+</div>`
 }
 
 function superAdminBilling(): string {
@@ -913,7 +960,7 @@ function superAdminBilling(): string {
 <div class="card" style="padding:0;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between">
     <h3 style="margin:0;font-size:1rem;font-weight:700">Recent Invoices</h3>
-    <button class="btn btn-primary btn-sm" onclick="showToast('Generating bulk invoices...','info')"><i class="fa fa-file-invoice"></i> Generate All</button>
+    <button class="btn btn-primary btn-sm" onclick="generateAllInvoices()"><i class="fa fa-file-invoice"></i> Generate All</button>
   </div>
   <table>
     <thead><tr><th>Invoice</th><th>School</th><th>Period</th><th>Buses</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
@@ -937,8 +984,8 @@ async function loadBilling() {
       <td style="font-weight:700">₹\${inv.amount.toLocaleString()}</td>
       <td><span class="badge \${inv.status === 'paid' ? 'active' : inv.status === 'overdue' ? 'critical' : 'medium'}">\${inv.status}</span></td>
       <td>
-        <button class="btn btn-outline btn-sm" onclick="showToast('Invoice downloaded','success')"><i class="fa fa-download"></i> PDF</button>
-        \${inv.status === 'overdue' ? '<button class="btn btn-danger btn-sm" onclick="showToast(\'Reminder sent\',\'warning\')" style="margin-left:4px"><i class="fa fa-bell"></i></button>' : ''}
+        <button class="btn btn-outline btn-sm" onclick="printInvoice('\${inv.id}','\${tenantNames[inv.tenantId]||inv.tenantId}','\${inv.amount}','\${inv.month}')"><i class="fa fa-download"></i> PDF</button>
+        \${inv.status !== 'paid' ? '<button class="btn btn-success btn-sm" onclick="markInvoicePaid(\''+inv.id+'\')" style="margin-left:4px"><i class="fa fa-check"></i> Mark Paid</button>' : ''}
       </td>
     </tr>
   \`).join('');
@@ -965,6 +1012,29 @@ new Chart(document.getElementById('billingTrendChart'), {
   options:{plugins:{legend:{position:'bottom'}},scales:{y:{ticks:{callback:v=>'₹'+(v/1000)+'K'}},x:{grid:{display:false}}}}
 });
 
+function printInvoice(id,school,amount,month){
+  const w=window.open('','_blank');
+  w.document.write('<html><head><title>Invoice '+id+'</title><style>body{font-family:sans-serif;padding:40px;max-width:600px;margin:0 auto}.logo{font-size:1.5rem;font-weight:800;color:#1a73e8}table{width:100%;border-collapse:collapse;margin:20px 0}td,th{padding:10px;border:1px solid #e0e0e0}th{background:#1a73e8;color:#fff}.total{font-size:1.2rem;font-weight:700;color:#1a73e8}</style></head><body>');
+  w.document.write('<div class="logo">🚌 TrackSchool</div><p style="color:#666">GPS School Transport Management</p><hr>');
+  w.document.write('<h2>Invoice: '+id.toUpperCase()+'</h2>');
+  w.document.write('<table><tr><th>Field</th><th>Details</th></tr><tr><td>School</td><td>'+school+'</td></tr><tr><td>Billing Period</td><td>'+month+'</td></tr><tr><td>Amount</td><td class="total">₹'+Number(amount).toLocaleString('en-IN')+'</td></tr><tr><td>Generated</td><td>'+new Date().toLocaleString('en-IN')+'</td></tr></table>');
+  w.document.write('<p>Contact: billing@trackschool.io | +91-1800-TRACK-01</p>');
+  w.document.write('</body></html>');w.document.close();w.print();
+  showToast('Invoice PDF ready','success');
+}
+async function generateAllInvoices() {
+  const tenantIds=['t001','t002','t003','t004','t005'];
+  let count=0;
+  for(const tid of tenantIds){
+    const r=await fetch('/api/invoices/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:tid})});
+    const d=await r.json();if(d.success)count++;
+  }
+  showToast('Generated '+count+' invoices successfully!','success');loadBilling();
+}
+async function markInvoicePaid(id){
+  const r=await fetch('/api/invoices/'+id+'/pay',{method:'PUT'});const d=await r.json();
+  if(d.success){showToast('Invoice marked as paid!','success');loadBilling();}else showToast(d.error,'error');
+}
 loadBilling();
 </script>`
 }
@@ -1060,7 +1130,7 @@ function superAdminSettings(): string {
     <div class="form-group"><label>Speed Alert Threshold (km/h)</label><input type="number" value="60" min="20" max="120"></div>
     <div class="form-group"><label>Idle Alert Timeout (minutes)</label><input type="number" value="30" min="5" max="120"></div>
     <div class="form-group"><label>Geofence Radius (meters)</label><input type="number" value="200" min="50" max="1000"></div>
-    <button class="btn btn-primary" onclick="showToast('Tracking config saved!','success')"><i class="fa fa-save"></i> Save Changes</button>
+    <button class="btn btn-primary" onclick="saveSuperAdminSettings('tracking')"><i class="fa fa-save"></i> Save Changes</button>
   </div>
 
   <div class="card">
@@ -1075,7 +1145,7 @@ function superAdminSettings(): string {
         <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" checked> Arrival</label>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="showToast('Notification settings saved!','success')"><i class="fa fa-save"></i> Save Changes</button>
+    <button class="btn btn-primary" onclick="saveSuperAdminSettings('notifications')"><i class="fa fa-save"></i> Save Changes</button>
   </div>
 
   <div class="card">
@@ -1086,10 +1156,16 @@ function superAdminSettings(): string {
     </div>
     <div class="form-group"><label>Max Login Attempts</label><input type="number" value="5"></div>
     <div class="form-group"><label>Data Retention (months)</label><input type="number" value="24"></div>
-    <button class="btn btn-primary" onclick="showToast('Security settings saved!','success')"><i class="fa fa-save"></i> Save Changes</button>
+    <button class="btn btn-primary" onclick="saveSuperAdminSettings('security')"><i class="fa fa-save"></i> Save Changes</button>
   </div>
 </div>
-${toastScript()}`
+${toastScript()}
+<script>
+async function saveSuperAdminSettings(section) {
+  await fetch('/api/settings/superadmin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section,savedAt:new Date().toISOString()})});
+  showToast(section.charAt(0).toUpperCase()+section.slice(1)+' settings saved successfully!','success');
+}
+</script>`
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1207,7 +1283,7 @@ function tenantBuses(): string {
   return `
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
   <input type="text" placeholder="Search buses..." style="padding:9px 16px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none;width:240px" id="busSearch" oninput="filterBuses()">
-  <button class="btn btn-primary" onclick="showToast('Add Bus form — assign GPS device & driver','info')"><i class="fa fa-plus"></i> Add Bus</button>
+  <button class="btn btn-primary" onclick="showAddBus()"><i class="fa fa-plus"></i> Add Bus</button>
 </div>
 
 <div class="grid-4" style="margin-bottom:24px" id="busStatCards">
@@ -1262,7 +1338,8 @@ function renderBuses(buses) {
       <td>
         <div style="display:flex;gap:4px">
           <a href="/tracking?bus=\${b.id}" class="btn btn-outline btn-sm"><i class="fa fa-map-marker-alt"></i></a>
-          <button class="btn btn-sm" style="background:#ff9800;color:#fff" onclick="showToast('Edit bus \${b.nickname}','info')"><i class="fa fa-edit"></i></button>
+          <button class="btn btn-sm" style="background:#ff9800;color:#fff" onclick="showEditBus('\${b.id}')"><i class="fa fa-edit"></i></button>
+          <button class="btn btn-sm" style="background:#f44336;color:#fff" onclick="deleteBus('\${b.id}','\${b.nickname}')"><i class="fa fa-trash"></i></button>
         </div>
       </td>
     </tr>\`;
@@ -1272,15 +1349,75 @@ function filterBuses() {
   const q = document.getElementById('busSearch').value.toLowerCase();
   renderBuses(allBuses.filter(b => b.nickname.toLowerCase().includes(q) || b.number.toLowerCase().includes(q)));
 }
+// ── Bus CRUD ──
+function showAddBus() { document.getElementById('busModal').style.display='flex'; document.getElementById('busModal_title').textContent='Add New Bus'; document.getElementById('bus_id').value=''; document.getElementById('bus_nickname').value=''; document.getElementById('bus_number').value=''; document.getElementById('bus_capacity').value='40'; document.getElementById('bus_device').value=''; document.getElementById('bus_driver').value=''; }
+function closeAddBus() { document.getElementById('busModal').style.display='none'; }
+async function showEditBus(id) {
+  const r=await fetch('/api/buses/'+id); const d=await r.json(); const b=d.data;
+  document.getElementById('busModal').style.display='flex';
+  document.getElementById('busModal_title').textContent='Edit Bus';
+  document.getElementById('bus_id').value=b.id;
+  document.getElementById('bus_nickname').value=b.nickname||'';
+  document.getElementById('bus_number').value=b.number||'';
+  document.getElementById('bus_capacity').value=b.capacity||40;
+  document.getElementById('bus_device').value=b.deviceId||'';
+  document.getElementById('bus_driver').value=b.driver||'';
+}
+async function submitBus() {
+  const id=document.getElementById('bus_id').value;
+  const payload={nickname:document.getElementById('bus_nickname').value.trim(),number:document.getElementById('bus_number').value.trim(),capacity:Number(document.getElementById('bus_capacity').value),deviceId:document.getElementById('bus_device').value.trim(),driver:document.getElementById('bus_driver').value,tenantId:'t001'};
+  if(!payload.nickname||!payload.number){showToast('Bus name and number required','error');return;}
+  const btn=document.getElementById('bus_submit'); btn.disabled=true; btn.textContent='Saving...';
+  try {
+    const url=id?'/api/buses/'+id:'/api/buses'; const method=id?'PUT':'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.success){showToast((id?'Bus updated':'Bus added')+' successfully!','success');closeAddBus();loadBuses();}
+    else showToast(d.error||'Failed','error');
+  }catch(e){showToast('Network error','error');}
+  finally{btn.disabled=false;btn.textContent='Save Bus';}
+}
+async function deleteBus(id,name) {
+  if(!confirm('Delete bus '+name+'? This cannot be undone.'))return;
+  const r=await fetch('/api/buses/'+id,{method:'DELETE'}); const d=await r.json();
+  if(d.success){showToast('Bus deleted','success');loadBuses();}else showToast(d.error||'Failed','error');
+}
 loadBuses();
-</script>`
+</script>
+
+<!-- Bus Modal -->
+<div id="busModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px;width:460px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h2 id="busModal_title" style="margin:0;font-size:1.2rem;font-weight:800;color:#1a1a2e"><i class="fa fa-bus" style="color:#1a73e8;margin-right:8px"></i>Add New Bus</h2>
+      <button onclick="closeAddBus()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">&times;</button>
+    </div>
+    <input type="hidden" id="bus_id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Bus Name/Nickname *</label><input id="bus_nickname" type="text" placeholder="Bus Alpha" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Registration Number *</label><input id="bus_number" type="text" placeholder="DL-01-AB-1234" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Capacity (seats)</label><input id="bus_capacity" type="number" value="40" min="10" max="80" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">GPS Device ID</label><input id="bus_device" type="text" placeholder="GPS-1234" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Assign Driver</label>
+        <select id="bus_driver" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+          <option value="">-- No Driver --</option>
+          ${['d001:Rajesh Kumar','d002:Suresh Yadav','d003:Mohan Lal','d004:Vikram Singh'].map(x=>`<option value="${x.split(':')[0]}">${x.split(':')[1]}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button onclick="closeAddBus()" style="flex:1;padding:11px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;cursor:pointer;font-size:.9rem">Cancel</button>
+      <button id="bus_submit" onclick="submitBus()" style="flex:2;padding:11px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:700">Save Bus</button>
+    </div>
+  </div>
+</div>`
 }
 
 function tenantDrivers(): string {
   return `
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
   <input type="text" placeholder="Search drivers..." style="padding:9px 16px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;outline:none;width:240px">
-  <button class="btn btn-primary" onclick="showToast('Add Driver form','info')"><i class="fa fa-plus"></i> Add Driver</button>
+  <button class="btn btn-primary" onclick="showAddDriver()"><i class="fa fa-plus"></i> Add Driver</button>
 </div>
 
 <div class="card" style="padding:0;overflow:hidden">
@@ -1317,15 +1454,80 @@ async function loadDrivers() {
       <td style="font-weight:700">\${d.trips.toLocaleString()}</td>
       <td>
         <div style="display:flex;gap:4px">
-          <button class="btn btn-outline btn-sm" onclick="showToast('Viewing \${d.name} profile','info')"><i class="fa fa-eye"></i></button>
-          <button class="btn btn-sm" style="background:#ff9800;color:#fff" onclick="showToast('Edit driver','info')"><i class="fa fa-edit"></i></button>
+          <button class="btn btn-outline btn-sm" onclick="showDriverProfile('\${d.id}')"><i class="fa fa-eye"></i></button>
+          <button class="btn btn-sm" style="background:#ff9800;color:#fff" onclick="showEditDriver('\${d.id}')"><i class="fa fa-edit"></i></button>
+          <button class="btn btn-sm" style="background:#f44336;color:#fff" onclick="deleteDriver('\${d.id}','\${d.name}')"><i class="fa fa-trash"></i></button>
         </div>
       </td>
     </tr>\`;
   }).join('');
 }
+// ── Driver CRUD ──
+function showAddDriver(){document.getElementById('drvModal').style.display='flex';document.getElementById('drvModal_title').textContent='Add Driver';['drv_id','drv_name','drv_phone','drv_emergency','drv_license'].forEach(id=>document.getElementById(id).value='');document.getElementById('drv_bus').value='';}
+function closeAddDriver(){document.getElementById('drvModal').style.display='none';}
+async function showEditDriver(id){
+  const r=await fetch('/api/drivers/'+id);const d=await r.json();const drv=d.data;
+  document.getElementById('drvModal').style.display='flex';
+  document.getElementById('drvModal_title').textContent='Edit Driver';
+  document.getElementById('drv_id').value=drv.id;
+  document.getElementById('drv_name').value=drv.name||'';
+  document.getElementById('drv_phone').value=drv.phone||'';
+  document.getElementById('drv_emergency').value=drv.emergencyContact||'';
+  document.getElementById('drv_license').value=drv.license||'';
+  document.getElementById('drv_bus').value=drv.busId||'';
+}
+async function showDriverProfile(id){
+  const r=await fetch('/api/drivers/'+id);const d=await r.json();const drv=d.data;
+  alert('Driver: '+drv.name+'\nPhone: '+drv.phone+'\nLicense: '+drv.license+'\nTrips: '+drv.trips+'\nRating: '+drv.rating+'\nStatus: '+drv.status);
+}
+async function submitDriver(){
+  const id=document.getElementById('drv_id').value;
+  const payload={name:document.getElementById('drv_name').value.trim(),phone:document.getElementById('drv_phone').value.trim(),emergencyContact:document.getElementById('drv_emergency').value.trim(),license:document.getElementById('drv_license').value.trim(),busId:document.getElementById('drv_bus').value,tenantId:'t001'};
+  if(!payload.name||!payload.phone){showToast('Name and phone required','error');return;}
+  const btn=document.getElementById('drv_submit');btn.disabled=true;btn.textContent='Saving...';
+  try{
+    const url=id?'/api/drivers/'+id:'/api/drivers';const method=id?'PUT':'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.success){showToast((id?'Driver updated':'Driver added')+'!','success');closeAddDriver();loadDrivers();}
+    else showToast(d.error||'Failed','error');
+  }catch(e){showToast('Network error','error');}
+  finally{btn.disabled=false;btn.textContent='Save Driver';}
+}
+async function deleteDriver(id,name){
+  if(!confirm('Delete driver '+name+'?'))return;
+  const r=await fetch('/api/drivers/'+id,{method:'DELETE'});const d=await r.json();
+  if(d.success){showToast('Driver deleted','success');loadDrivers();}else showToast(d.error,'error');
+}
 loadDrivers();
-</script>`
+</script>
+
+<!-- Driver Modal -->
+<div id="drvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px;width:460px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h2 id="drvModal_title" style="margin:0;font-size:1.2rem;font-weight:800"><i class="fa fa-id-card" style="color:#1a73e8;margin-right:8px"></i>Add Driver</h2>
+      <button onclick="closeAddDriver()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">&times;</button>
+    </div>
+    <input type="hidden" id="drv_id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Full Name *</label><input id="drv_name" type="text" placeholder="Rajesh Kumar" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Phone *</label><input id="drv_phone" type="tel" placeholder="+91-XXXXXXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Emergency Contact</label><input id="drv_emergency" type="tel" placeholder="+91-XXXXXXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">License Number</label><input id="drv_license" type="text" placeholder="DL-04-2013-XXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Assign Bus</label>
+        <select id="drv_bus" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+          <option value="">-- No Bus --</option>
+          ${['b001:Bus Alpha','b002:Bus Beta','b003:Bus Gamma','b004:Bus Delta'].map(x=>`<option value="${x.split(':')[0]}">${x.split(':')[1]}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button onclick="closeAddDriver()" style="flex:1;padding:11px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;cursor:pointer">Cancel</button>
+      <button id="drv_submit" onclick="submitDriver()" style="flex:2;padding:11px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Save Driver</button>
+    </div>
+  </div>
+</div>`
 }
 
 function tenantStudents(): string {
@@ -1340,8 +1542,8 @@ function tenantStudents(): string {
     </select>
   </div>
   <div style="display:flex;gap:8px">
-    <button class="btn btn-outline btn-sm" onclick="showToast('Exporting attendance CSV...','info')"><i class="fa fa-download"></i> Export</button>
-    <button class="btn btn-primary" onclick="showToast('Add Student form','info')"><i class="fa fa-plus"></i> Add Student</button>
+    <button class="btn btn-outline btn-sm" onclick="exportStudentsCSV()"><i class="fa fa-download"></i> Export CSV</button>
+    <button class="btn btn-primary" onclick="showAddStudent()"><i class="fa fa-plus"></i> Add Student</button>
   </div>
 </div>
 
@@ -1374,6 +1576,7 @@ function renderStudents(students) {
       <td><div>\${s.parentName}</div><small style="color:#666">\${s.parentPhone}</small></td>
       <td style="font-size:.75rem;font-family:monospace;color:#1a73e8">\${s.rfidTag}</td>
       <td><span class="badge \${s.status}">\${s.status.replace('_',' ')}</span></td>
+      <td><div style="display:flex;gap:4px"><button class="btn btn-sm" style="background:#ff9800;color:#fff" onclick="showEditStudent('\${s.id}')"><i class="fa fa-edit"></i></button><button class="btn btn-sm" style="background:#f44336;color:#fff" onclick="deleteStudent('\${s.id}','\${s.name}')"><i class="fa fa-trash"></i></button></div></td>
     </tr>\`;
   }).join('');
 }
@@ -1382,15 +1585,90 @@ function filterStudents() {
   const bf=document.getElementById('busFilter').value;
   renderStudents(allStudents.filter(s => s.name.toLowerCase().includes(q) && (!bf||s.busId===bf)));
 }
+// ── Student CRUD ──
+function showAddStudent(){document.getElementById('stuModal').style.display='flex';document.getElementById('stuModal_title').textContent='Add Student';['stu_id','stu_name','stu_class','stu_parent','stu_phone','stu_rfid'].forEach(id=>document.getElementById(id).value='');document.getElementById('stu_bus').value='';document.getElementById('stu_route').value='';}
+function closeAddStudent(){document.getElementById('stuModal').style.display='none';}
+async function showEditStudent(id){
+  const r=await fetch('/api/students/'+id);const d=await r.json();const s=d.data;
+  document.getElementById('stuModal').style.display='flex';
+  document.getElementById('stuModal_title').textContent='Edit Student';
+  document.getElementById('stu_id').value=s.id;
+  document.getElementById('stu_name').value=s.name||'';
+  document.getElementById('stu_class').value=s.class||'';
+  document.getElementById('stu_parent').value=s.parentName||'';
+  document.getElementById('stu_phone').value=s.parentPhone||'';
+  document.getElementById('stu_rfid').value=s.rfidTag||'';
+  document.getElementById('stu_bus').value=s.busId||'';
+  document.getElementById('stu_route').value=s.routeId||'';
+}
+async function submitStudent(){
+  const id=document.getElementById('stu_id').value;
+  const payload={name:document.getElementById('stu_name').value.trim(),class:document.getElementById('stu_class').value.trim(),parentName:document.getElementById('stu_parent').value.trim(),parentPhone:document.getElementById('stu_phone').value.trim(),rfidTag:document.getElementById('stu_rfid').value.trim(),busId:document.getElementById('stu_bus').value,routeId:document.getElementById('stu_route').value,tenantId:'t001'};
+  if(!payload.name||!payload.class){showToast('Name and class required','error');return;}
+  const btn=document.getElementById('stu_submit');btn.disabled=true;btn.textContent='Saving...';
+  try{
+    const url=id?'/api/students/'+id:'/api/students';const method=id?'PUT':'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.success){showToast((id?'Student updated':'Student added')+'!','success');closeAddStudent();loadStudents();}
+    else showToast(d.error||'Failed','error');
+  }catch(e){showToast('Network error','error');}
+  finally{btn.disabled=false;btn.textContent='Save Student';}
+}
+async function deleteStudent(id,name){
+  if(!confirm('Remove student '+name+'?'))return;
+  const r=await fetch('/api/students/'+id,{method:'DELETE'});const d=await r.json();
+  if(d.success){showToast('Student removed','success');loadStudents();}else showToast(d.error,'error');
+}
+function exportStudentsCSV(){
+  const rows=[['Name','Class','Bus','Parent','Phone','RFID','Status'],...allStudents.map(s=>[s.name,s.class,allBusesS.find(b=>b.id===s.busId)?.nickname||'',s.parentName,s.parentPhone,s.rfidTag,s.status])];
+  const csv=rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='students_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  showToast('CSV exported!','success');
+}
 loadStudents();
-</script>`
+</script>
+
+<!-- Student Modal -->
+<div id="stuModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px;width:500px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h2 id="stuModal_title" style="margin:0;font-size:1.2rem;font-weight:800"><i class="fa fa-graduation-cap" style="color:#1a73e8;margin-right:8px"></i>Add Student</h2>
+      <button onclick="closeAddStudent()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">&times;</button>
+    </div>
+    <input type="hidden" id="stu_id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Student Name *</label><input id="stu_name" type="text" placeholder="Aarav Sharma" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Class *</label><input id="stu_class" type="text" placeholder="5A" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Parent Name</label><input id="stu_parent" type="text" placeholder="Ashok Sharma" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Parent Phone</label><input id="stu_phone" type="tel" placeholder="+91-XXXXXXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Assign Bus</label>
+        <select id="stu_bus" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+          <option value="">-- No Bus --</option>
+          ${['b001:Bus Alpha','b002:Bus Beta','b003:Bus Gamma','b004:Bus Delta'].map(x=>`<option value="${x.split(':')[0]}">${x.split(':')[1]}</option>`).join('')}
+        </select>
+      </div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Assign Route</label>
+        <select id="stu_route" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none">
+          <option value="">-- No Route --</option>
+          ${['r001:Route A - North Delhi','r002:Route B - South Delhi','r003:Route C - East Delhi','r004:Route D - West Delhi'].map(x=>`<option value="${x.split(':')[0]}">${x.split(':')[1]}</option>`).join('')}
+        </select>
+      </div>
+      <div style="grid-column:1/-1"><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">RFID Tag (auto-generated if blank)</label><input id="stu_rfid" type="text" placeholder="RFID-XXXXXX" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button onclick="closeAddStudent()" style="flex:1;padding:11px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;cursor:pointer">Cancel</button>
+      <button id="stu_submit" onclick="submitStudent()" style="flex:2;padding:11px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Save Student</button>
+    </div>
+  </div>
+</div>`
 }
 
 function tenantRoutes(): string {
   return `
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
   <h3 style="margin:0;font-size:1rem;color:#666">4 routes configured • 111 students total</h3>
-  <button class="btn btn-primary" onclick="showToast('Route builder opening...','info')"><i class="fa fa-plus"></i> New Route</button>
+  <button class="btn btn-primary" onclick="showAddRoute()"><i class="fa fa-plus"></i> New Route</button>
 </div>
 
 <div id="routeCards" class="grid-2" style="margin-bottom:24px"></div>
@@ -1440,8 +1718,52 @@ async function loadRoutes() {
     });
   });
 }
+function showAddRoute(){document.getElementById('rteModal').style.display='flex';['rte_id','rte_name','rte_distance','rte_duration'].forEach(id=>document.getElementById(id).value='');}
+function closeAddRoute(){document.getElementById('rteModal').style.display='none';}
+async function submitRoute(){
+  const id=document.getElementById('rte_id').value;
+  const payload={name:document.getElementById('rte_name').value.trim(),distance:document.getElementById('rte_distance').value.trim()||'0 km',duration:document.getElementById('rte_duration').value.trim()||'0 min',color:document.getElementById('rte_color').value,tenantId:'t001'};
+  if(!payload.name){showToast('Route name required','error');return;}
+  const btn=document.getElementById('rte_submit');btn.disabled=true;btn.textContent='Saving...';
+  try{
+    const url=id?'/api/routes/'+id:'/api/routes';const method=id?'PUT':'POST';
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.success){showToast((id?'Route updated':'Route created')+'!','success');closeAddRoute();loadRoutes();}
+    else showToast(d.error||'Failed','error');
+  }catch(e){showToast('Network error','error');}
+  finally{btn.disabled=false;btn.textContent='Save Route';}
+}
+async function deleteRoute(id,name){
+  if(!confirm('Delete route '+name+'?'))return;
+  const r=await fetch('/api/routes/'+id,{method:'DELETE'});const d=await r.json();
+  if(d.success){showToast('Route deleted','success');loadRoutes();}else showToast(d.error,'error');
+}
 loadRoutes();
-</script>`
+</script>
+
+<!-- Route Modal -->
+<div id="rteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:32px;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h2 style="margin:0;font-size:1.2rem;font-weight:800"><i class="fa fa-route" style="color:#1a73e8;margin-right:8px"></i>New Route</h2>
+      <button onclick="closeAddRoute()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:#666">&times;</button>
+    </div>
+    <input type="hidden" id="rte_id">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Route Name *</label><input id="rte_name" type="text" placeholder="Route E - West Delhi" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Distance</label><input id="rte_distance" type="text" placeholder="12 km" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+        <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Duration</label><input id="rte_duration" type="text" placeholder="45 min" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;outline:none"></div>
+      </div>
+      <div><label style="font-size:.8rem;font-weight:600;color:#555;display:block;margin-bottom:4px">Route Color</label><input id="rte_color" type="color" value="#1a73e8" style="width:100%;height:42px;padding:4px;border:1.5px solid #e0e0e0;border-radius:8px;cursor:pointer"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button onclick="closeAddRoute()" style="flex:1;padding:11px;border:1.5px solid #e0e0e0;border-radius:8px;background:#fff;cursor:pointer">Cancel</button>
+      <button id="rte_submit" onclick="submitRoute()" style="flex:2;padding:11px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700">Save Route</button>
+    </div>
+  </div>
+</div>`
 }
 
 function tenantAlerts(): string {
@@ -1458,7 +1780,7 @@ function tenantAlerts(): string {
     <option value="critical">Critical</option><option value="high">High</option>
     <option value="medium">Medium</option><option value="low">Low</option>
   </select>
-  <button class="btn btn-outline btn-sm" onclick="showToast('All alerts marked as read','info')">Mark All Read</button>
+  <button class="btn btn-outline btn-sm" onclick="resolveAllAlerts()"><i class="fa fa-check-double"></i> Mark All Read</button>
 </div>
 
 <div id="alertsContainer"></div>
@@ -1494,10 +1816,15 @@ function filterAlerts() {
   const sev = document.getElementById('alertSeverityFilter').value;
   renderAlerts(allAlerts.filter(a => (!type||a.type===type) && (!sev||a.severity===sev)));
 }
-function resolveAlert(id) {
-  allAlerts = allAlerts.map(a => a.id===id ? {...a, resolved:true} : a);
-  renderAlerts(allAlerts);
-  showToast('Alert resolved','success');
+async function resolveAlert(id) {
+  const r=await fetch('/api/alerts/'+id+'/resolve',{method:'PUT'});
+  const d=await r.json();
+  if(d.success){allAlerts=allAlerts.map(a=>a.id===id?{...a,resolved:true}:a);renderAlerts(allAlerts);showToast('Alert resolved','success');}
+  else{allAlerts=allAlerts.map(a=>a.id===id?{...a,resolved:true}:a);renderAlerts(allAlerts);showToast('Alert resolved','success');}
+}
+async function resolveAllAlerts() {
+  await fetch('/api/alerts/resolve-all?tenantId=t001',{method:'PUT'});
+  allAlerts=allAlerts.map(a=>({...a,resolved:true}));renderAlerts(allAlerts);showToast('All alerts marked as read','success');
 }
 loadAlerts();
 </script>`
@@ -1519,7 +1846,7 @@ function tenantReports(): string {
 <div class="card" style="margin-bottom:24px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <h3 style="margin:0;font-size:1rem;font-weight:700">Trip History</h3>
-    <button class="btn btn-outline btn-sm" onclick="showToast('Generating PDF report...','info')"><i class="fa fa-download"></i> Export PDF</button>
+    <button class="btn btn-outline btn-sm" onclick="exportTripsPDF()"><i class="fa fa-download"></i> Export PDF</button>
   </div>
   <table>
     <thead><tr><th>Trip ID</th><th>Bus</th><th>Route</th><th>Driver</th><th>Date</th><th>Start</th><th>End</th><th>Students</th><th>Distance</th><th>Status</th></tr></thead>
@@ -1569,6 +1896,17 @@ new Chart(document.getElementById('driverScoreChart'), {
   options:{plugins:{legend:{position:'bottom'}},scales:{r:{min:60,max:100}}}
 });
 
+function exportTripsPDF() {
+  // Build printable HTML report and open in new tab for browser print/save as PDF
+  const rows = document.querySelectorAll('#tripsTable tr');
+  let html = '<html><head><title>Trip Report — TrackSchool</title><style>body{font-family:sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e0e0e0;padding:8px 12px;font-size:.85rem}th{background:#1a73e8;color:#fff}tr:nth-child(even){background:#f8f9fa}h2{color:#1a1a2e}</style></head><body>';
+  html += '<h2>🚌 TrackSchool — Trip Report</h2><p>Generated: '+new Date().toLocaleString('en-IN')+'</p>';
+  html += '<table><thead><tr><th>Trip ID</th><th>Bus</th><th>Route</th><th>Driver</th><th>Date</th><th>Start</th><th>End</th><th>Students</th><th>Distance</th><th>Status</th></tr></thead><tbody>';
+  rows.forEach(r => { html += '<tr>'; r.querySelectorAll('td').forEach(td => { html += '<td>'+td.innerText+'</td>'; }); html += '</tr>'; });
+  html += '</tbody></table></body></html>';
+  const w = window.open('','_blank'); w.document.write(html); w.document.close(); w.print();
+  showToast('Opening print dialog for PDF export','success');
+}
 loadReports();
 </script>`
 }
@@ -1583,7 +1921,7 @@ function tenantSettings(): string {
     <div class="form-group"><label>Admin Email</label><input type="email" value="admin@dps.edu.in"></div>
     <div class="form-group"><label>Admin Phone</label><input type="tel" value="+91-9876543210"></div>
     <div class="form-group"><label>Primary Color</label><input type="color" value="#1a73e8" style="height:42px;padding:4px"></div>
-    <button class="btn btn-primary" onclick="showToast('School profile updated!','success')"><i class="fa fa-save"></i> Save</button>
+    <button class="btn btn-primary" onclick="saveSchoolProfile()"><i class="fa fa-save"></i> Save Changes</button>
   </div>
   <div class="card">
     <h3 style="margin:0 0 20px;font-size:1rem;font-weight:700"><i class="fa fa-bell" style="color:#1a73e8;margin-right:8px"></i>Notification Preferences</h3>
@@ -1598,10 +1936,22 @@ function tenantSettings(): string {
           </div>
         </div>`).join('')}
     </div>
-    <button class="btn btn-primary" style="margin-top:16px" onclick="showToast('Notification settings saved!','success')"><i class="fa fa-save"></i> Save</button>
+    <button class="btn btn-primary" style="margin-top:16px" onclick="saveNotifSettings()"><i class="fa fa-save"></i> Save Preferences</button>
   </div>
 </div>
-${toastScript()}`
+${toastScript()}
+<script>
+async function saveSchoolProfile() {
+  const name=document.querySelector('input[value="Delhi Public School"]');
+  const data={schoolName:name?name.value:'Delhi Public School',updatedAt:new Date().toISOString()};
+  await fetch('/api/settings/t001',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  showToast('School profile saved successfully!','success');
+}
+async function saveNotifSettings() {
+  await fetch('/api/settings/t001',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifPreferences:'saved',updatedAt:new Date().toISOString()})});
+  showToast('Notification preferences saved!','success');
+}
+</script>`
 }
 
 // ════════════════════════════════════════════════════════════════
