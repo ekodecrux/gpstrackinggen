@@ -16,6 +16,14 @@ let users    = [...USERS]
 
 const uid = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`
 
+// ── Real GPS Location Store ───────────────────────────────────
+// Stores live GPS updates pushed by driver devices
+const gpsStore: Record<string, {
+  lat: number; lng: number; speed: number; heading: number;
+  accuracy: number; engineOn: boolean; fuel: number;
+  timestamp: string; driverId?: string; source: 'device'|'manual'
+}> = {}
+
 // ── PLATFORM ──────────────────────────────────────────────────
 api.get('/platform/stats', (c) => {
   const stats = {
@@ -85,15 +93,81 @@ api.get('/buses/:id', (c) => {
 api.get('/buses/:id/location', (c) => {
   const b = buses.find(x => x.id === c.req.param('id'))
   if (!b) return c.json({ success: false, error: 'Not found' }, 404)
-  const drift = () => (Math.random() - 0.5) * 0.002
+  // Return real GPS data if driver has pushed location, else return last known from mock data
+  const real = gpsStore[b.id]
+  if (real) {
+    return c.json({
+      success: true,
+      source: 'device',
+      data: { busId: b.id, ...real }
+    })
+  }
+  // Fallback: return static stored position (no random drift)
   return c.json({
     success: true,
+    source: 'static',
     data: {
-      busId: b.id, lat: b.lat + drift(), lng: b.lng + drift(),
-      speed: b.engineOn ? Math.max(0, b.speed + (Math.random() - 0.5) * 5) : 0,
-      timestamp: new Date().toISOString(), fuel: b.fuel, engineOn: b.engineOn
+      busId: b.id, lat: b.lat, lng: b.lng,
+      speed: b.speed, heading: 0, accuracy: 999,
+      timestamp: b.lastUpdate || new Date().toISOString(),
+      fuel: b.fuel, engineOn: b.engineOn
     }
   })
+})
+
+// POST /api/buses/:id/location — Driver device pushes real GPS
+api.post('/buses/:id/location', async (c) => {
+  const busId = c.req.param('id')
+  const b = buses.find(x => x.id === busId)
+  if (!b) return c.json({ success: false, error: 'Bus not found' }, 404)
+  const body = await c.req.json()
+  const { lat, lng, speed = 0, heading = 0, accuracy = 0, engineOn, fuel, driverId } = body
+  if (lat == null || lng == null) return c.json({ success: false, error: 'lat and lng are required' }, 400)
+  // Validate coordinates are realistic (rough India bounding box)
+  if (lat < 6 || lat > 37 || lng < 68 || lng > 98) {
+    return c.json({ success: false, error: 'Coordinates out of range (must be valid Indian coordinates)' }, 400)
+  }
+  // Store real GPS
+  gpsStore[busId] = {
+    lat: Number(lat), lng: Number(lng),
+    speed: Number(speed), heading: Number(heading),
+    accuracy: Number(accuracy),
+    engineOn: engineOn !== undefined ? Boolean(engineOn) : b.engineOn,
+    fuel: fuel !== undefined ? Number(fuel) : b.fuel,
+    timestamp: new Date().toISOString(),
+    driverId, source: 'device'
+  }
+  // Also update the in-memory bus record
+  const idx = buses.findIndex(x => x.id === busId)
+  if (idx !== -1) {
+    buses[idx] = { ...buses[idx], lat: Number(lat), lng: Number(lng), speed: Number(speed),
+      engineOn: engineOn !== undefined ? Boolean(engineOn) : buses[idx].engineOn,
+      lastUpdate: new Date().toISOString() }
+  }
+  return c.json({ success: true, stored: true, busId, lat, lng, timestamp: gpsStore[busId].timestamp })
+})
+
+// GET /api/buses/locations — All buses' real-time locations at once
+api.get('/buses-locations', (c) => {
+  const tenantId = c.req.query('tenantId')
+  const filtered = tenantId ? buses.filter(b => b.tenantId === tenantId) : buses
+  const data = filtered.map(b => {
+    const real = gpsStore[b.id]
+    return {
+      busId: b.id, nickname: b.nickname, number: b.number, status: b.status,
+      driverId: b.driver, tenantId: b.tenantId,
+      lat: real?.lat ?? b.lat,
+      lng: real?.lng ?? b.lng,
+      speed: real?.speed ?? b.speed,
+      heading: real?.heading ?? 0,
+      accuracy: real?.accuracy ?? 999,
+      fuel: real?.fuel ?? b.fuel,
+      engineOn: real?.engineOn ?? b.engineOn,
+      timestamp: real?.timestamp ?? b.lastUpdate,
+      source: real ? 'device' : 'static'
+    }
+  })
+  return c.json({ success: true, data, count: data.length, timestamp: new Date().toISOString() })
 })
 api.post('/buses', async (c) => {
   const body = await c.req.json()

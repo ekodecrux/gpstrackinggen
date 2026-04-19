@@ -2328,6 +2328,7 @@ ${sharedHead('Live Tracking')}
     <div class="info-item"><div class="v" id="infoDelayed">0</div><div class="l">Delayed</div></div>
     <div class="info-item"><div class="v" id="infoAlerts">0</div><div class="l">Alerts</div></div>
     <div class="info-item"><div class="v" id="infoStudents">0</div><div class="l">Students</div></div>
+    <div class="info-item" style="border-left:1px solid #eee;padding-left:24px"><div style="font-size:.72rem;font-weight:700" id="gpsSourceBadge">📍 Last Known Position</div><div class="l">GPS Source</div></div>
   </div>
 </div>
 
@@ -2483,32 +2484,80 @@ function toggleHeatmap() {
   showToast(heatmapOn ? 'Heatmap overlay enabled' : 'Heatmap disabled', 'info');
 }
 
-// Simulate real-time movement
-function simulateMovement() {
-  allBusList.forEach(bus => {
-    if (bus.status === 'on_trip' || bus.status === 'delayed') {
-      const drift = 0.0008;
-      bus.lat += (Math.random() - 0.5) * drift;
-      bus.lng += (Math.random() - 0.5) * drift;
-      bus.speed = Math.max(5, Math.min(60, bus.speed + (Math.random() - 0.5) * 4));
-      if (busMarkers[bus.id]) busMarkers[bus.id].setLatLng([bus.lat, bus.lng]);
+// ── Real-time GPS polling from backend ──────────────────────────
+// Fetches actual GPS data pushed by driver devices
+// Falls back gracefully to last known position if no device update yet
+
+async function pollRealLocations() {
+  try {
+    const res = await fetch('/api/buses-locations?tenantId=t001');
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success) return;
+    const locations = json.data; // array of {busId, lat, lng, speed, heading, source, ...}
+
+    let anyDeviceGPS = false;
+    locations.forEach(loc => {
+      // Update allBusList with fresh coordinates
+      const bus = allBusList.find(b => b.id === loc.busId);
+      if (!bus) return;
+      bus.lat = loc.lat;
+      bus.lng = loc.lng;
+      bus.speed = loc.speed;
+      bus.fuel = loc.fuel ?? bus.fuel;
+      bus.engineOn = loc.engineOn ?? bus.engineOn;
+      bus._source = loc.source; // 'device' or 'static'
+      if (loc.source === 'device') anyDeviceGPS = true;
+
+      // Move marker on map
+      if (busMarkers[bus.id]) {
+        busMarkers[bus.id].setLatLng([bus.lat, bus.lng]);
+        // Rotate icon based on heading if available
+        if (loc.heading && loc.source === 'device') {
+          const el = busMarkers[bus.id].getElement();
+          if (el) el.style.transform = \`rotate(\${loc.heading}deg)\`;
+        }
+      }
+    });
+
+    // Update info panel
+    document.getElementById('infoOnTrip').textContent = allBusList.filter(b=>b.status==='on_trip').length;
+
+    // Update bus list sidebar
+    renderBusList(allBusList.filter(b => {
+      const q = document.getElementById('busSearchT').value.toLowerCase();
+      const s = document.getElementById('statusFilterT').value;
+      return (b.nickname.toLowerCase().includes(q)||b.number.toLowerCase().includes(q)) && (!s||b.status===s);
+    }));
+
+    // Show source indicator
+    const srcEl = document.getElementById('gpsSourceBadge');
+    if (srcEl) {
+      if (anyDeviceGPS) {
+        srcEl.textContent = '📡 Live Device GPS';
+        srcEl.style.color = '#00c853';
+      } else {
+        srcEl.textContent = '📍 Last Known Position';
+        srcEl.style.color = '#ff9800';
+      }
     }
-  });
-  if (selectedBus) {
-    const bus = allBusList.find(b => b.id===selectedBus);
-    if (bus && busMarkers[bus.id]) busMarkers[bus.id].openPopup();
+
+    // Auto-pan to selected bus
+    if (selectedBus) {
+      const bus = allBusList.find(b => b.id===selectedBus);
+      if (bus && busMarkers[bus.id]) busMarkers[bus.id].openPopup();
+    }
+  } catch(e) {
+    console.warn('[Tracking] Poll error:', e);
   }
-  renderBusList(allBusList.filter(b => {
-    const q = document.getElementById('busSearchT').value.toLowerCase();
-    const s = document.getElementById('statusFilterT').value;
-    return (b.nickname.toLowerCase().includes(q)||b.number.toLowerCase().includes(q)) && (!s||b.status===s);
-  }));
-  document.getElementById('infoOnTrip').textContent = allBusList.filter(b=>b.status==='on_trip').length;
 }
 
 initMap().then(() => {
-  setInterval(simulateMovement, 3000);
-  showToast('Live tracking active — GPS updates every 3s', 'success');
+  // Poll every 5 seconds for real GPS updates
+  setInterval(pollRealLocations, 5000);
+  showToast('Live tracking active — polling device GPS every 5s', 'success');
+  // First poll immediately
+  pollRealLocations();
 });
 </script>
 </body></html>`
@@ -2592,9 +2641,10 @@ ${sharedHead('Driver App')}
             <div style="font-size:.8rem;opacity:.9;margin-top:2px">Students: 22 boarded / 0 dropped</div>
           </div>
 
+          <div style="background:#e8f5e9;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:.75rem;font-weight:700" id="gpsStatus">📡 Acquiring GPS signal...</div>
           <div class="stat-row">
-            <div class="stat-box"><div class="v" id="dSpeed">28</div><div class="l">km/h</div></div>
-            <div class="stat-box"><div class="v" id="dDist">14.2</div><div class="l">km covered</div></div>
+            <div class="stat-box"><div class="v" id="dSpeed">0</div><div class="l">km/h</div></div>
+            <div class="stat-box"><div class="v" id="dDist">0.0</div><div class="l">km covered</div></div>
             <div class="stat-box"><div class="v">08:10</div><div class="l">ETA school</div></div>
           </div>
 
@@ -2708,74 +2758,151 @@ ${sharedHead('Driver App')}
 
 ${toastScript()}
 <script>
-// Driver app mini map
-const dMap = L.map('driverMap').setView([28.6139, 77.2090], 14);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(dMap);
-const busIcon = L.divIcon({ html:'<div style="font-size:24px">🚌</div>', iconSize:[24,24], iconAnchor:[12,12] });
-const marker = L.marker([28.6200, 77.2100], {icon:busIcon}).addTo(dMap).bindPopup('Bus Gamma — Route C');
+// ── Driver App — Real GPS Broadcasting ─────────────────────────
+const DRIVER_BUS_ID = 'b003'; // Logged-in driver's bus (Bus Gamma)
+const DRIVER_ID = 'd003';
+
+// Map init
+const dMap = L.map('driverMap').setView([28.6139, 77.2090], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(dMap);
+const busIcon = L.divIcon({ html:'<div style="font-size:26px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))">🚌</div>', iconSize:[30,30], iconAnchor:[15,15] });
+const dMarker = L.marker([28.6200, 77.2100], {icon:busIcon}).addTo(dMap).bindPopup('<b>Your Bus (GPS Active)</b><br>Bus Gamma · Route C');
 L.polyline([[28.6462,77.2897],[28.6355,77.2800],[28.6469,77.3152],[28.6127,77.2773],[28.6139,77.2090]], {color:'#43a047',weight:3,dashArray:'6 4'}).addTo(dMap);
 
-// Simulate movement
-let lat = 28.6200, lng = 77.2100, spd = 28;
-setInterval(() => {
-  lat += (Math.random() - 0.5) * 0.001;
-  lng += (Math.random() - 0.5) * 0.001;
-  spd = Math.max(10, Math.min(55, spd + (Math.random()-0.5)*5));
-  marker.setLatLng([lat, lng]);
+// State
+let tripActive = false;
+let watchId = null;
+let lastLat = null, lastLng = null;
+let prevLat = null, prevLng = null, tripDistance = 0;
+
+// Haversine distance in km
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Push GPS to backend — called every time device GPS updates
+async function pushGPSToServer(coords) {
+  const { latitude: lat, longitude: lng, speed, heading, accuracy } = coords;
+  lastLat = lat; lastLng = lng;
+
+  // Update map marker to real position
+  dMarker.setLatLng([lat, lng]);
+  if (tripActive) dMap.panTo([lat, lng], { animate:true, duration:0.8 });
+
+  // Speed: m/s to km/h
+  const kmh = speed != null ? Math.round(speed * 3.6) : 0;
   const el = document.getElementById('dSpeed');
-  if (el) el.textContent = Math.round(spd);
-  const el2 = document.getElementById('dDist');
-  if (el2) el2.textContent = (parseFloat(el2.textContent) + 0.02).toFixed(1);
-}, 2000);
+  if (el) el.textContent = kmh;
+
+  // Distance
+  if (prevLat !== null) {
+    const d = haversine(prevLat, prevLng, lat, lng);
+    if (d < 0.3) {
+      tripDistance += d;
+      const el2 = document.getElementById('dDist');
+      if (el2) el2.textContent = tripDistance.toFixed(1);
+    }
+  }
+  prevLat = lat; prevLng = lng;
+
+  // GPS accuracy badge
+  const gpsEl = document.getElementById('gpsStatus');
+  if (gpsEl) {
+    const acc = Math.round(accuracy);
+    gpsEl.textContent = '\u{1F4E1} GPS Live \u00B1' + acc + 'm';
+    gpsEl.style.color = acc < 15 ? '#00c853' : acc < 50 ? '#ff9800' : '#f44336';
+  }
+
+  // Send real coords to backend
+  try {
+    await fetch('/api/buses/' + DRIVER_BUS_ID + '/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lng, speed: kmh, heading: heading||0, accuracy: Math.round(accuracy), engineOn: tripActive, driverId: DRIVER_ID })
+    });
+  } catch(e) { console.warn('[GPS Push]', e); }
+}
+
+function startGPSWatch() {
+  if (!navigator.geolocation) {
+    showToast('GPS not available on this device/browser', 'error');
+    return;
+  }
+  const gpsEl = document.getElementById('gpsStatus');
+  if (gpsEl) { gpsEl.textContent = 'Acquiring GPS signal...'; gpsEl.style.color='#ff9800'; }
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => pushGPSToServer(pos.coords),
+    (err) => {
+      const gpsEl = document.getElementById('gpsStatus');
+      const msg = err.code === 1 ? 'GPS permission denied - please allow location' : err.message;
+      if (gpsEl) { gpsEl.textContent = msg; gpsEl.style.color='#f44336'; }
+      if (err.code === 1) showToast('Please allow location permission for GPS tracking', 'error');
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 4000 }
+  );
+}
+
+// Start GPS on page load
+startGPSWatch();
 
 function showDriverToast(msg, type) { showToast(msg, type); }
 
 async function triggerSOS() {
-  if (!confirm('🚨 SEND SOS EMERGENCY ALERT?\\n\\nThis will immediately send an SMS alert to the school admin and your emergency contact.')) return;
+  if (!confirm('SOS EMERGENCY ALERT? This will immediately alert school admin and emergency contact.')) return;
   const sosBtn = document.querySelector('.sos-btn');
-  if (sosBtn) { sosBtn.innerHTML = '⏳ Sending SOS...'; sosBtn.disabled = true; }
+  if (sosBtn) { sosBtn.innerHTML = 'Sending SOS...'; sosBtn.disabled = true; }
   try {
-    // Get current GPS position if available
-    let lat = 28.6200, lng = 77.2100;
-    try {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
-      lat = pos.coords.latitude; lng = pos.coords.longitude;
-    } catch(_) {}
-
+    let lat = lastLat, lng = lastLng;
+    if (!lat) {
+      try {
+        const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout:5000, enableHighAccuracy:true }));
+        lat = pos.coords.latitude; lng = pos.coords.longitude;
+      } catch(_) { lat = 28.6200; lng = 77.2100; }
+    }
     const res = await fetch('/api/notify/sms/sos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ busId: 'b001', driverId: 'd001', lat, lng })
+      body: JSON.stringify({ busId: DRIVER_BUS_ID, driverId: DRIVER_ID, lat, lng })
     });
     const data = await res.json();
     if (data.success) {
       const sent = data.results.filter(r => r.status === 'sent').length;
-      showToast('🚨 SOS SENT to ' + sent + ' contact(s)! Help is on the way.', 'error');
-      // Log it
-      console.log('[SOS] Triggered:', data);
+      showToast('SOS SENT to ' + sent + ' contacts! Help is on the way.', 'error');
     } else {
-      showToast('⚠️ SOS API: ' + (data.error || 'Failed. Contact admin manually.'), 'warning');
+      showToast('SOS failed: ' + (data.error || 'Unknown error. Call admin manually.'), 'warning');
     }
   } catch(e) {
-    showToast('🚨 SOS triggered (offline mode) — contact admin manually!', 'error');
+    showToast('SOS triggered (offline) - call admin manually!', 'error');
   } finally {
-    if (sosBtn) { sosBtn.innerHTML = '🚨 SOS EMERGENCY'; sosBtn.disabled = false; }
+    if (sosBtn) { sosBtn.innerHTML = 'SOS EMERGENCY'; sosBtn.disabled = false; }
   }
 }
 
 function startTrip() {
-  showToast('✅ Trip started! GPS broadcasting active', 'success');
-  // In production: POST /api/trips/start with busId + driverId
+  tripActive = true;
+  showToast('Trip started! Real GPS broadcasting active', 'success');
   document.querySelector('.trip-start-btn')?.remove();
+  fetch('/api/buses/' + DRIVER_BUS_ID, {
+    method: 'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status: 'on_trip', engineOn: true })
+  });
 }
 
 function endTrip() {
   if (confirm('End trip and submit report?')) {
-    showToast('Trip ended. Report submitted automatically.', 'success');
-    // In production: POST /api/trips/end with tripId
+    tripActive = false;
+    if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    showToast('Trip ended. Report submitted.', 'success');
+    fetch('/api/buses/' + DRIVER_BUS_ID, {
+      method: 'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'idle', engineOn: false, speed: 0 })
+    });
   }
 }
-</script>
+
 </body></html>`
 }
 
@@ -2919,15 +3046,31 @@ stops.forEach(([lat,lng,name,eta,status]) => {
   L.circleMarker([lat,lng],{radius:7,color,fillColor:color,fillOpacity:1,weight:2}).bindPopup(\`<b>\${name}</b><br>ETA: \${eta}\`).addTo(pMap);
 });
 
-// Aarav's bus
+// Aarav's bus — real GPS from backend
 const busIcon = L.divIcon({html:'<div style="font-size:28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))">🚌</div>',iconSize:[28,28],iconAnchor:[14,14]});
 let bLat = 28.6900, bLng = 77.1400;
-const busM = L.marker([bLat,bLng],{icon:busIcon}).bindPopup('<b>Bus Alpha</b><br>Aarav is on this bus<br>32 km/h').addTo(pMap);
+const busM = L.marker([bLat,bLng],{icon:busIcon}).bindPopup('<b>Bus Alpha</b><br>Aarav is on this bus').addTo(pMap);
 
-setInterval(() => {
-  bLat += 0.0008; bLng += 0.0005;
-  busM.setLatLng([bLat, bLng]);
-}, 3000);
+// Poll real GPS from backend every 5s
+async function pollParentBusLocation() {
+  try {
+    const res = await fetch('/api/buses/b001/location');
+    const data = await res.json();
+    if (data.success && data.data) {
+      const { lat, lng, speed } = data.data;
+      bLat = lat; bLng = lng;
+      busM.setLatLng([lat, lng]);
+      busM.setPopupContent('<b>Bus Alpha</b><br>Aarav is on this bus<br>' + speed + ' km/h' + (data.source === 'device' ? '<br><span style="color:#00c853;font-weight:700">Live GPS</span>' : '<br><span style="color:#ff9800">Last known</span>'));
+      // Update speed display if present
+      const spEl = document.getElementById('parentBusSpeed');
+      if (spEl) spEl.textContent = speed + ' km/h';
+      // Auto pan
+      pMap.panTo([lat, lng], { animate:true, duration:1 });
+    }
+  } catch(e) { console.warn('[Parent GPS poll]', e); }
+}
+pollParentBusLocation();
+setInterval(pollParentBusLocation, 5000);
 
 // Journey timeline
 const timelineStops = [
