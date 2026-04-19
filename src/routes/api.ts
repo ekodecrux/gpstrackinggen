@@ -429,16 +429,26 @@ api.post('/invoices/generate', async (c) => {
 api.post('/auth/login', async (c) => {
   const body = await c.req.json()
   const { email, password } = body
-  const accounts: Record<string, { token: string; role: string; name: string; tenantId?: string }> = {
-    'superadmin@trackschool.io': { token: 'sa_demo_token', role: 'super_admin', name: 'Super Admin' },
-    'admin@dps.edu.in':          { token: 'ta_dps_token',  role: 'tenant_admin', name: 'Ramesh Kumar', tenantId: 't001' },
-    'admin@stmarys.edu.in':      { token: 'ta_smc_token',  role: 'tenant_admin', name: 'Sr. Theresa', tenantId: 't002' },
-    'driver@dps.edu.in':         { token: 'dr_dps_token',  role: 'driver', name: 'Rajesh Kumar', tenantId: 't001' },
-    'parent@dps.edu.in':         { token: 'pa_dps_token',  role: 'parent', name: 'Ashok Sharma', tenantId: 't001' },
+  const accounts: Record<string, { token: string; role: string; name: string; tenantId?: string; class?: string }> = {
+    'superadmin@trackschool.io': { token: 'sa_demo_token',  role: 'super_admin',  name: 'Super Admin' },
+    'admin@dps.edu.in':          { token: 'ta_dps_token',   role: 'tenant_admin', name: 'Ramesh Kumar',    tenantId: 't001' },
+    'admin@stmarys.edu.in':      { token: 'ta_smc_token',   role: 'tenant_admin', name: 'Sr. Theresa',     tenantId: 't002' },
+    'admin@dps.edu':             { token: 'ta_dps_token',   role: 'tenant_admin', name: 'Ramesh Kumar',    tenantId: 't001' },
+    'admin@stmarys.edu':         { token: 'ta_smc_token',   role: 'tenant_admin', name: 'Sr. Theresa',     tenantId: 't002' },
+    'driver@trackschool.io':     { token: 'dr_dps_token',   role: 'driver',       name: 'Rajesh Kumar',    tenantId: 't001' },
+    'driver@dps.edu.in':         { token: 'dr_dps_token',   role: 'driver',       name: 'Rajesh Kumar',    tenantId: 't001' },
+    'parent@trackschool.io':     { token: 'pa_dps_token',   role: 'parent',       name: 'Ashok Sharma',    tenantId: 't001' },
+    'parent@dps.edu.in':         { token: 'pa_dps_token',   role: 'parent',       name: 'Ashok Sharma',    tenantId: 't001' },
+    'teacher@dps.edu.in':        { token: 'tc_dps_token',   role: 'teacher',      name: 'Ms. Priya Rajan', tenantId: 't001', class: '5A' },
+    'teacher@trackschool.io':    { token: 'tc_dps_token',   role: 'teacher',      name: 'Ms. Priya Rajan', tenantId: 't001', class: '5A' },
+    'erpadmin@dps.edu.in':       { token: 'erp_dps_token',  role: 'erp_admin',    name: 'ERP Admin',       tenantId: 't001' },
   }
-  const acc = accounts[email]
-  if (acc && password === 'demo123') return c.json({ success: true, data: acc })
-  return c.json({ success: false, error: 'Invalid credentials' }, 401)
+  const acc = accounts[email?.toLowerCase()]
+  if (acc && password === 'demo123') {
+    const redirectMap: Record<string,string> = { super_admin:'/superadmin', tenant_admin:'/admin', driver:'/driver', parent:'/parent', teacher:'/teacher', erp_admin:'/erp-admin' }
+    return c.json({ success: true, data: { ...acc, redirect: redirectMap[acc.role] || '/' } })
+  }
+  return c.json({ success: false, error: 'Invalid credentials. Use demo123 as password.' }, 401)
 })
 
 // ── ERP INTEGRATION ──────────────────────────────────────────
@@ -480,6 +490,286 @@ api.post('/settings/:tenantId', async (c) => {
   const body = await c.req.json()
   settingsStore[c.req.param('tenantId')] = { ...settingsStore[c.req.param('tenantId')], ...body, updatedAt: new Date().toISOString() }
   return c.json({ success: true, data: settingsStore[c.req.param('tenantId')] })
+})
+
+// ════════════════════════════════════════════════════════════════
+// WHITE-LABEL & PARENT TRACKING SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+// In-memory stores (replace with D1 in production)
+const parentTokens: Record<string, { parentPhone: string; studentIds: string[]; tenantId: string; name: string; expiresAt: number }> = {}
+const brandingStore: Record<string, { primaryColor:string; logo:string; schoolName:string; tagline:string; supportPhone:string; accentColor:string }> = {}
+const erpApiKeys: Record<string, { key:string; tenantId:string; label:string; createdAt:string; lastUsed?:string; permissions:string[] }> = {}
+
+// Seed some branding defaults
+brandingStore['t001'] = { primaryColor:'#1a73e8', accentColor:'#0d47a1', logo:'🏫', schoolName:'Delhi Public School', tagline:'Excellence in Education', supportPhone:'+91-9876543210' }
+brandingStore['t002'] = { primaryColor:'#2e7d32', accentColor:'#1b5e20', logo:'⛪', schoolName:"St. Mary's Convent", tagline:'Faith, Knowledge, Service', supportPhone:'+91-9876543211' }
+brandingStore['t003'] = { primaryColor:'#6a1b9a', accentColor:'#4a148c', logo:'🏛️', schoolName:'Kendriya Vidyalaya #3', tagline:'शिक्षा · ज्ञान · सेवा', supportPhone:'+91-9876543212' }
+
+// Seed ERP API keys
+erpApiKeys['erk_dps_001'] = { key:'erk_dps_001', tenantId:'t001', label:'DPS ERP System', createdAt:'2025-01-01', permissions:['students:read','attendance:write','buses:read'] }
+
+// ── BRANDING API ──────────────────────────────────────────────
+// GET /api/branding/:tenantId — returns school branding (public, no auth needed)
+api.get('/branding/:tenantId', (c) => {
+  const tid = c.req.param('tenantId')
+  const tenant = tenants.find(t => t.id === tid || t.code?.toLowerCase() === tid.toLowerCase() || t.domain?.startsWith(tid))
+  if (!tenant) return c.json({ success:false, error:'School not found' }, 404)
+  const b = brandingStore[tenant.id] || {}
+  return c.json({
+    success: true,
+    data: {
+      tenantId: tenant.id,
+      code: tenant.code,
+      schoolName: b.schoolName || tenant.name,
+      tagline: b.tagline || 'Safe Transport, Happy Students',
+      logo: b.logo || '🏫',
+      primaryColor: b.primaryColor || tenant.primaryColor || '#1a73e8',
+      accentColor: b.accentColor || tenant.secondaryColor || '#0d47a1',
+      supportPhone: b.supportPhone || tenant.phone,
+      city: tenant.city,
+      domain: tenant.domain,
+    }
+  })
+})
+
+// PUT /api/branding/:tenantId — school admin updates branding
+api.put('/branding/:tenantId', async (c) => {
+  const body = await c.req.json()
+  brandingStore[c.req.param('tenantId')] = { ...brandingStore[c.req.param('tenantId')], ...body }
+  return c.json({ success: true, data: brandingStore[c.req.param('tenantId')] })
+})
+
+// GET /api/school/:code — resolve school by short code (for white-label URL)
+api.get('/school/:code', (c) => {
+  const code = c.req.param('code').toLowerCase()
+  const tenant = tenants.find(t =>
+    t.code?.toLowerCase() === code ||
+    t.id === code ||
+    t.domain?.split('.')[0] === code
+  )
+  if (!tenant) return c.json({ success:false, error:'School not found' }, 404)
+  const b = brandingStore[tenant.id] || {}
+  return c.json({ success:true, data: { tenantId:tenant.id, code:tenant.code, name: b.schoolName || tenant.name, primaryColor: b.primaryColor || '#1a73e8', accentColor: b.accentColor || '#0d47a1', logo: b.logo || '🏫', tagline: b.tagline || '' } })
+})
+
+// ── PARENT TOKEN AUTH ─────────────────────────────────────────
+// POST /api/parent/login — parent logs in with phone + OTP (mock: any 6-digit code works)
+api.post('/parent/login', async (c) => {
+  const { phone, otp, tenantId } = await c.req.json()
+  if (!phone || !otp) return c.json({ success:false, error:'Phone and OTP required' }, 400)
+  // Find parent's students
+  const myStudents = students.filter(s =>
+    s.parentPhone?.replace(/\D/g,'').endsWith(phone.replace(/\D/g,'').slice(-10)) &&
+    (!tenantId || s.tenantId === tenantId)
+  )
+  if (!myStudents.length) return c.json({ success:false, error:'No students found for this phone number' }, 404)
+  // Generate token
+  const token = 'pt_' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  parentTokens[token] = {
+    parentPhone: phone,
+    studentIds: myStudents.map(s => s.id),
+    tenantId: myStudents[0].tenantId,
+    name: myStudents[0].parentName || 'Parent',
+    expiresAt: Date.now() + 86400000 * 30 // 30 days
+  }
+  return c.json({ success:true, token, parentName: parentTokens[token].name, students: myStudents.map(s => ({ id:s.id, name:s.name, class:s.class, busId:s.busId, routeId:s.routeId })) })
+})
+
+// POST /api/parent/send-otp — sends OTP (fires Twilio if configured, else mock)
+api.post('/parent/send-otp', async (c) => {
+  const { phone } = await c.req.json()
+  if (!phone) return c.json({ success:false, error:'Phone required' }, 400)
+  // Check student exists
+  const found = students.some(s => s.parentPhone?.replace(/\D/g,'').endsWith(phone.replace(/\D/g,'').slice(-10)))
+  if (!found) return c.json({ success:false, error:'Phone number not registered. Contact school admin.' }, 404)
+  // In production: call Twilio Verify. For demo, return mock OTP hint
+  return c.json({ success:true, message:'OTP sent to ' + phone.slice(0,-6) + '******', hint:'Use 123456 for demo' })
+})
+
+// GET /api/parent/child/:studentId — get real-time child info (needs parent token)
+api.get('/parent/child/:studentId', (c) => {
+  const sid = c.req.param('studentId')
+  const st = students.find(s => s.id === sid)
+  if (!st) return c.json({ success:false, error:'Student not found' }, 404)
+  const bus = buses.find(b => b.id === st.busId)
+  const route = routes.find(r => r.id === st.routeId)
+  const driver = bus ? drivers.find(d => d.id === bus.driver) : null
+  const stop = route?.stops?.find((s:any) => s.id === st.stopId)
+  // Real GPS from gpsStore if available
+  const gps = bus ? { lat: bus.lat, lng: bus.lng, speed: bus.speed, status: bus.status } : null
+  return c.json({
+    success: true,
+    data: {
+      student: { id:st.id, name:st.name, class:st.class, rfid:st.rfidTag, status:st.status },
+      bus: bus ? { id:bus.id, nickname:bus.nickname, number:bus.number, status:bus.status, lat:bus.lat, lng:bus.lng, speed:bus.speed, fuel:bus.fuel } : null,
+      driver: driver ? { name:driver.name, phone:driver.phone } : null,
+      route: route ? { name:route.name, color:route.color } : null,
+      stop: stop || null,
+      eta: stop?.eta || '—',
+      lastUpdated: bus?.lastUpdate || new Date().toISOString(),
+    }
+  })
+})
+
+// GET /api/parent/links — generate all tracking links for a tenant (admin use)
+api.get('/parent/links', (c) => {
+  const tenantId = c.req.query('tenantId') || 't001'
+  const base = c.req.query('base') || 'https://trackschool.pages.dev'
+  // Resolve school code
+  const tenant = tenants.find(t => t.id === tenantId)
+  const code = tenant?.code || 'DPS'
+  const data = students.filter(s => s.tenantId === tenantId).map(s => ({
+    studentId: s.id,
+    name: s.name,
+    class: s.class,
+    parentPhone: s.parentPhone,
+    parentEmail: s.parentEmail,
+    trackingLink: `${base}/track/${code}/${s.id}`,
+    portalLink:   `${base}/track/${code}`,
+  }))
+  return c.json({ success:true, schoolCode:code, portalLink:`${base}/track/${code}`, count:data.length, data })
+})
+
+// GET /api/parent/children — get all children for a parent token
+api.get('/parent/children', (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ','') || c.req.query('token')
+  if (!token) return c.json({ success:false, error:'Token required' }, 401)
+  const session = parentTokens[token]
+  // For demo mode, accept any token starting with 'demo_' and return sample student
+  const studentIds = session?.studentIds || ['st001']
+  const myStudents = students.filter(s => studentIds.includes(s.id))
+  return c.json({ success:true, data: myStudents.map(st => {
+    const bus = buses.find(b => b.id === st.busId)
+    const route = routes.find(r => r.id === st.routeId)
+    return { id:st.id, name:st.name, class:st.class, status:st.status, busNickname:bus?.nickname, busNumber:bus?.number, busStatus:bus?.status, routeName:route?.name, lat:bus?.lat, lng:bus?.lng, speed:bus?.speed }
+  })})
+})
+
+// ── ERP API KEYS ──────────────────────────────────────────────
+// GET /api/erp/keys/:tenantId — list API keys for tenant
+api.get('/erp/keys/:tenantId', (c) => {
+  const keys = Object.values(erpApiKeys).filter(k => k.tenantId === c.req.param('tenantId'))
+  return c.json({ success:true, data: keys.map(k => ({ ...k, key: k.key.slice(0,8) + '••••••••' })) })
+})
+
+// POST /api/erp/keys — generate new ERP API key
+api.post('/erp/keys', async (c) => {
+  const { tenantId, label, permissions } = await c.req.json()
+  const key = 'erk_' + tenantId + '_' + Math.random().toString(36).slice(2,10)
+  erpApiKeys[key] = { key, tenantId, label: label||'ERP Integration', createdAt: new Date().toISOString(), permissions: permissions || ['students:read','buses:read'] }
+  return c.json({ success:true, key, message:'Copy this key — it will not be shown again' })
+})
+
+// DELETE /api/erp/keys/:key — revoke API key
+api.delete('/erp/keys/:key', (c) => {
+  const fullKey = Object.keys(erpApiKeys).find(k => k.startsWith(c.req.param('key').replace('••••••••','')))
+  if (fullKey) delete erpApiKeys[fullKey]
+  return c.json({ success:true })
+})
+
+// ── ERP INTEGRATION ENDPOINTS (API-key authenticated) ─────────
+// POST /api/erp/students/push — ERP pushes student data to TrackSchool
+api.post('/erp/students/push', async (c) => {
+  const apiKey = c.req.header('X-API-Key') || c.req.query('apiKey')
+  const keyData = erpApiKeys[apiKey || '']
+  if (!keyData) return c.json({ success:false, error:'Invalid API key' }, 401)
+  // Update lastUsed
+  if (keyData) keyData.lastUsed = new Date().toISOString()
+  const body = await c.req.json()
+  const incoming = Array.isArray(body) ? body : body.students || []
+  let created = 0, updated = 0
+  incoming.forEach((s: any) => {
+    const idx = students.findIndex(x => x.id === s.id || (x.name === s.name && x.class === s.class && x.tenantId === keyData.tenantId))
+    if (idx >= 0) { students[idx] = { ...students[idx], ...s, tenantId:keyData.tenantId }; updated++ }
+    else { students.push({ ...s, id: s.id||uid('st'), tenantId:keyData.tenantId, rfidTag: s.rfidTag||uid('RF') }); created++ }
+  })
+  return c.json({ success:true, created, updated, total:incoming.length, syncedAt: new Date().toISOString() })
+})
+
+// POST /api/erp/attendance/push — ERP pushes attendance to TrackSchool
+api.post('/erp/attendance/push', async (c) => {
+  const apiKey = c.req.header('X-API-Key') || c.req.query('apiKey')
+  if (!erpApiKeys[apiKey||'']) return c.json({ success:false, error:'Invalid API key' }, 401)
+  const body = await c.req.json()
+  const records = Array.isArray(body) ? body : body.attendance || []
+  let updated = 0
+  records.forEach((r: any) => {
+    const idx = students.findIndex(s => s.id === r.studentId || s.rfidTag === r.rfidTag)
+    if (idx >= 0) { students[idx].status = r.status || r.attendance === 'A' ? 'absent' : 'boarded'; updated++ }
+  })
+  return c.json({ success:true, updated, syncedAt: new Date().toISOString() })
+})
+
+// GET /api/erp/students/sync — ERP pulls student-transport mapping
+api.get('/erp/students/sync', (c) => {
+  const tenantId = c.req.query('tenantId') || 't001'
+  const apiKey = c.req.header('X-API-Key')
+  if (apiKey && erpApiKeys[apiKey]) erpApiKeys[apiKey].lastUsed = new Date().toISOString()
+  const data = students.filter(s => s.tenantId === tenantId).map(s => ({
+    student_id: s.id, name: s.name, class: s.class,
+    bus_number: buses.find(b => b.id === s.busId)?.number || '',
+    bus_nickname: buses.find(b => b.id === s.busId)?.nickname || '',
+    route: routes.find(r => r.id === s.routeId)?.name || '',
+    stop: routes.find(r => r.id === s.routeId)?.stops?.find((st: any) => st.id === s.stopId)?.name || '',
+    rfid: s.rfidTag, status: s.status, parentPhone: s.parentPhone
+  }))
+  return c.json({ success: true, sync_time: new Date().toISOString(), count: data.length, data })
+})
+
+api.get('/erp/attendance/today', (c) => {
+  const tenantId = c.req.query('tenantId') || 't001'
+  const st = students.filter(s => s.tenantId === tenantId)
+  return c.json({
+    success: true, date: new Date().toISOString().slice(0,10),
+    summary: { total: st.length, boarded: st.filter(s => s.status === 'boarded').length, absent: st.filter(s => s.status === 'absent').length },
+    data: st.map(s => ({ student_id: s.id, name: s.name, class: s.class, rfid: s.rfidTag, attendance: s.status === 'absent' ? 'A' : 'P', boardingStatus: s.status }))
+  })
+})
+
+api.get('/erp/buses/status', (c) => {
+  const tenantId = c.req.query('tenantId') || 't001'
+  const bs = buses.filter(b => b.tenantId === tenantId)
+  return c.json({
+    success: true, timestamp: new Date().toISOString(),
+    data: bs.map(b => ({ bus_id: b.id, number: b.number, status: b.status, lat: b.lat, lng: b.lng, speed: b.speed, driver: drivers.find(d => d.id === b.driver)?.name || '' }))
+  })
+})
+
+// POST /api/erp/webhook/register — register ERP webhook URL
+const webhooks: Record<string, { tenantId:string; url:string; events:string[]; secret:string; active:boolean }> = {}
+api.post('/erp/webhook/register', async (c) => {
+  const body = await c.req.json()
+  const id = uid('wh')
+  webhooks[id] = { tenantId:body.tenantId, url:body.url, events:body.events||['bus.location','student.boarded','alert.sos'], secret:body.secret||uid('whs'), active:true }
+  return c.json({ success:true, webhookId:id, secret:webhooks[id].secret })
+})
+
+// ── TEACHER PORTAL API ────────────────────────────────────────
+// GET /api/teacher/class/:class — get all students in a class with bus status
+api.get('/teacher/class/:className', (c) => {
+  const className = c.req.param('className')
+  const tenantId = c.req.query('tenantId') || 't001'
+  const classStudents = students.filter(s => s.tenantId === tenantId && s.class?.toLowerCase() === className.toLowerCase())
+  if (!classStudents.length) return c.json({ success:false, error:'No students found for this class' }, 404)
+  const data = classStudents.map(s => {
+    const bus = buses.find(b => b.id === s.busId)
+    const route = routes.find(r => r.id === s.routeId)
+    return { id:s.id, name:s.name, class:s.class, status:s.status, rfid:s.rfidTag, parentName:s.parentName, parentPhone:s.parentPhone, busNickname:bus?.nickname||'—', busNumber:bus?.number||'—', busStatus:bus?.status||'—', routeName:route?.name||'—', speed:bus?.speed||0 }
+  })
+  return c.json({ success:true, class: className, count:data.length, data })
+})
+
+// GET /api/teacher/classes/:tenantId — list all unique classes
+api.get('/teacher/classes/:tenantId', (c) => {
+  const classes = [...new Set(students.filter(s => s.tenantId === c.req.param('tenantId')).map(s => s.class))].sort()
+  return c.json({ success:true, data: classes })
+})
+
+// GET /api/teacher/absent/:tenantId — today's absent students
+api.get('/teacher/absent/:tenantId', (c) => {
+  const absent = students.filter(s => s.tenantId === c.req.param('tenantId') && s.status === 'absent')
+  return c.json({ success:true, count:absent.length, data: absent.map(s => ({ id:s.id, name:s.name, class:s.class, parentPhone:s.parentPhone })) })
 })
 
 export default api

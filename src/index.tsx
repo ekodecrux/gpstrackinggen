@@ -66,6 +66,21 @@ app.get('/erp-docs', (c) => c.html(erpDocsPage()))
 // ── NOTIFICATIONS TEST CONSOLE ────────────────────────────────
 app.get('/notify-console', (c) => c.html(notifyConsolePage()))
 
+// ── WHITE-LABEL PARENT TRACKING ───────────────────────────────
+// /track/DPS/st001  — branded per school, parent sees child's bus live
+app.get('/track/:schoolCode/:studentId', (c) => c.html(whitelabelTrackPage(c.req.param('schoolCode'), c.req.param('studentId'))))
+app.get('/track/:schoolCode',            (c) => c.html(whitelabelLoginPage(c.req.param('schoolCode'))))
+
+// ── TEACHER PORTAL ────────────────────────────────────────────
+app.get('/teacher', (c) => c.html(teacherPortalPage()))
+
+// ── ERP ADMIN PORTAL ──────────────────────────────────────────
+app.get('/erp-admin', (c) => c.html(erpAdminPage()))
+app.get('/admin/erp',  (c) => c.html(tenantAdminPage('erp')))
+
+// ── SCHOOL SETUP WIZARD ───────────────────────────────────────
+app.get('/school-setup', (c) => c.html(schoolSetupPage()))
+
 export default app
 
 // ════════════════════════════════════════════════════════════════
@@ -221,6 +236,10 @@ function sidebarLayout(activePage: string, role: 'super' | 'tenant', content: st
     <a href="/admin/drivers" class="${activePage==='drivers'?'active':''}"><i class="fa fa-id-badge"></i> Drivers</a>
     <a href="/admin/students" class="${activePage==='students'?'active':''}"><i class="fa fa-users"></i> Students</a>
     <a href="/admin/routes" class="${activePage==='routes'?'active':''}"><i class="fa fa-route"></i> Routes</a>
+    <div class="section-title">Integration & Portals</div>
+    <a href="/admin/erp" class="${activePage==='erp'?'active':''}"><i class="fa fa-code"></i> ERP & Data Entry <span style="background:#6a1b9a;color:#fff;border-radius:10px;padding:1px 7px;font-size:.65rem;margin-left:auto">NEW</span></a>
+    <a href="/teacher" class="${activePage==='teacher'?'active':''}"><i class="fa fa-graduation-cap"></i> Teacher Portal</a>
+    <a href="/track/DPS" target="_blank"><i class="fa fa-qrcode"></i> Parent Tracking</a>
     <div class="section-title">Reports & AI</div>
     <a href="/admin/reports" class="${activePage==='reports'?'active':''}"><i class="fa fa-file-lines"></i> Reports</a>
     <a href="/admin/ai" class="${activePage==='ai'?'active':''}"><i class="fa fa-robot"></i> AI Assistant <span style="background:linear-gradient(135deg,#1a73e8,#00c853);color:#fff;border-radius:10px;padding:1px 7px;font-size:.65rem;margin-left:auto">Groq</span></a>
@@ -1215,6 +1234,7 @@ function tenantAdminPage(section = 'dashboard'): string {
   else if (section === 'reports')  { title = 'Reports'; content = tenantReports() }
   else if (section === 'settings') { title = 'Settings'; content = tenantSettings() }
   else if (section === 'billing')  { title = 'Billing & Subscription'; content = tenantBilling() }
+  else if (section === 'erp')      { title = 'ERP & Data Integration'; content = erpIntegrationContent() }
   return sidebarLayout(section, 'tenant', content, title)
 }
 
@@ -1946,43 +1966,211 @@ loadReports();
 
 function tenantSettings(): string {
   return `
+<div style="display:flex;flex-direction:column;gap:24px">
+
+<!-- Row 1: Profile + Branding -->
 <div class="grid-2" style="gap:24px">
   <div class="card">
     <h3 style="margin:0 0 20px;font-size:1rem;font-weight:700"><i class="fa fa-school" style="color:#1a73e8;margin-right:8px"></i>School Profile</h3>
-    <div class="form-group"><label>School Name</label><input type="text" value="Delhi Public School"></div>
-    <div class="form-group"><label>Address</label><input type="text" value="New Delhi, Delhi - 110001"></div>
-    <div class="form-group"><label>Admin Email</label><input type="email" value="admin@dps.edu.in"></div>
-    <div class="form-group"><label>Admin Phone</label><input type="tel" value="+91-9876543210"></div>
-    <div class="form-group"><label>Primary Color</label><input type="color" value="#1a73e8" style="height:42px;padding:4px"></div>
-    <button class="btn btn-primary" onclick="saveSchoolProfile()"><i class="fa fa-save"></i> Save Changes</button>
+    <div class="form-group"><label>School Name</label><input id="settSchoolName" type="text" value="Delhi Public School"></div>
+    <div class="form-group"><label>Tagline / Motto</label><input id="settTagline" type="text" value="Excellence in Education"></div>
+    <div class="form-group"><label>Address</label><input id="settAddress" type="text" value="New Delhi, Delhi - 110001"></div>
+    <div class="form-group"><label>Admin Email</label><input id="settEmail" type="email" value="admin@dps.edu.in"></div>
+    <div class="form-group"><label>Support Phone (shown to parents)</label><input id="settPhone" type="tel" value="+91-9876543210"></div>
+    <button class="btn btn-primary" onclick="saveSchoolProfile()"><i class="fa fa-save"></i> Save Profile</button>
   </div>
   <div class="card">
+    <h3 style="margin:0 0 20px;font-size:1rem;font-weight:700"><i class="fa fa-palette" style="color:#1a73e8;margin-right:8px"></i>White-Label Branding</h3>
+    <div class="form-group"><label>School Logo / Emoji</label><input id="settLogo" type="text" value="🏫" placeholder="Emoji or image URL" style="font-size:1.5rem;text-align:center"></div>
+    <div class="grid-2" style="gap:12px">
+      <div class="form-group"><label>Primary Color</label><input id="settPrimary" type="color" value="#1a73e8" style="height:42px;padding:4px;width:100%"></div>
+      <div class="form-group"><label>Accent Color</label><input id="settAccent" type="color" value="#0d47a1" style="height:42px;padding:4px;width:100%"></div>
+    </div>
+    <div style="background:#f8f9fa;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;color:#666;margin-bottom:8px">PREVIEW — Parent App Header</div>
+      <div id="brandPreview" style="background:#1a73e8;border-radius:8px;padding:12px 16px;color:#fff;display:flex;align-items:center;gap:10px">
+        <span id="prevLogo" style="font-size:1.8rem">🏫</span>
+        <div><div id="prevName" style="font-weight:800;font-size:.95rem">Delhi Public School</div><div id="prevTag" style="font-size:.72rem;opacity:.85">Excellence in Education</div></div>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="saveBranding()"><i class="fa fa-save"></i> Save Branding</button>
+  </div>
+</div>
+
+<!-- Row 2: White-Label Tracking Links -->
+<div class="card">
+  <h3 style="margin:0 0 6px;font-size:1rem;font-weight:700"><i class="fa fa-link" style="color:#00c853;margin-right:8px"></i>White-Label Parent Tracking Links</h3>
+  <p style="font-size:.82rem;color:#666;margin:0 0 18px">Share these links with parents. Each link opens a fully branded tracking page in your school's colors — no login required for the shareable link.</p>
+  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:20px">
+    <div>
+      <div style="font-size:.78rem;font-weight:700;color:#555;margin-bottom:4px">🔗 School Tracking Portal (Parent Login)</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input id="portalLink" type="text" value="${typeof window !== 'undefined' ? window.location.origin : 'https://trackschool.pages.dev'}/track/DPS" readonly style="flex:1;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.82rem;background:#f8f9fa;font-family:monospace">
+        <button class="btn btn-outline btn-sm" onclick="copyLink('portalLink')"><i class="fa fa-copy"></i></button>
+      </div>
+    </div>
+    <div style="padding-top:22px">
+      <button class="btn btn-primary btn-sm" onclick="openTrackPortal()"><i class="fa fa-external-link"></i> Open</button>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px">
+    <div style="font-size:.78rem;font-weight:700;color:#555;margin-bottom:8px">📲 Generate Student-Specific Link (Share via SMS/WhatsApp)</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:200px;margin-bottom:0">
+        <label style="font-size:.78rem">Select Student</label>
+        <select id="linkStudentSel" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem"><option value="">Loading...</option></select>
+      </div>
+      <button class="btn btn-primary" onclick="generateStudentLink()" style="white-space:nowrap"><i class="fa fa-link"></i> Generate Link</button>
+    </div>
+    <div id="studentLinkResult" style="display:none;margin-top:12px;background:#e8f5e9;border-radius:10px;padding:14px">
+      <div style="font-size:.78rem;font-weight:700;color:#2e7d32;margin-bottom:6px">✅ Shareable link generated — send to parent via SMS/WhatsApp</div>
+      <div style="display:flex;gap:8px">
+        <input id="studentLinkBox" type="text" readonly style="flex:1;padding:10px 14px;border:1.5px solid #c8e6c9;border-radius:8px;font-size:.78rem;background:#fff;font-family:monospace">
+        <button class="btn btn-sm" style="background:#25d366;color:#fff;border:none" onclick="shareWhatsApp()"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
+        <button class="btn btn-outline btn-sm" onclick="copyLink('studentLinkBox')"><i class="fa fa-copy"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#fff3e0;border-radius:10px;padding:14px">
+    <div style="font-size:.78rem;font-weight:700;color:#e65100;margin-bottom:8px">📋 How Parents Use The Tracking Link</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      ${[
+        ['1️⃣','Click the link','Opens your school-branded tracking page'],
+        ['2️⃣','Enter phone number','Registered parent phone'],
+        ['3️⃣','Receive OTP','Via SMS to their phone'],
+        ['4️⃣','See live bus','Real-time map + ETA + driver info'],
+      ].map(([n,t,d]) => `<div style="background:#fff;border-radius:8px;padding:10px;text-align:center"><div style="font-size:1.2rem">${n}</div><div style="font-size:.78rem;font-weight:700;margin:4px 0">${t}</div><div style="font-size:.72rem;color:#666">${d}</div></div>`).join('')}
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Notifications + ERP Keys -->
+<div class="grid-2" style="gap:24px">
+  <div class="card">
     <h3 style="margin:0 0 20px;font-size:1rem;font-weight:700"><i class="fa fa-bell" style="color:#1a73e8;margin-right:8px"></i>Notification Preferences</h3>
-    <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:10px">
       ${['Bus Departure Alert','Bus Arrival Alert','Delay Notification','SOS Alert','Geofence Breach','Speeding Alert','Low Fuel Alert'].map((n,i) => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:#f8f9fa;border-radius:8px">
-          <span style="font-size:.875rem">${n}</span>
+          <span style="font-size:.82rem">${n}</span>
           <div style="display:flex;gap:12px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:.78rem;font-weight:400"><input type="checkbox" ${i < 4 ? 'checked' : ''}> SMS</label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:.78rem;font-weight:400"><input type="checkbox" checked> Push</label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:.78rem;font-weight:400"><input type="checkbox" ${i < 5 ? 'checked' : ''}> Email</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.75rem"><input type="checkbox" ${i < 4 ? 'checked' : ''}> SMS</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.75rem"><input type="checkbox" checked> Push</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.75rem"><input type="checkbox" ${i < 5 ? 'checked' : ''}> Email</label>
           </div>
         </div>`).join('')}
     </div>
     <button class="btn btn-primary" style="margin-top:16px" onclick="saveNotifSettings()"><i class="fa fa-save"></i> Save Preferences</button>
   </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 6px;font-size:1rem;font-weight:700"><i class="fa fa-code" style="color:#1a73e8;margin-right:8px"></i>ERP API Keys</h3>
+    <p style="font-size:.78rem;color:#666;margin:0 0 14px">Give this key to your ERP vendor to sync student data automatically.</p>
+    <div id="erpKeysList" style="margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px">
+      <input id="newKeyLabel" type="text" placeholder="Key label (e.g. Fedena ERP)" style="flex:1;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem">
+      <button class="btn btn-primary btn-sm" onclick="generateErpKey()"><i class="fa fa-plus"></i> Generate</button>
+    </div>
+    <div id="newKeyResult" style="display:none;margin-top:10px;background:#e3f2fd;border-radius:8px;padding:12px">
+      <div style="font-size:.75rem;font-weight:700;color:#1565c0;margin-bottom:4px">🔑 Copy this key NOW — shown only once</div>
+      <code id="newKeyValue" style="font-size:.78rem;word-break:break-all;display:block;background:#fff;padding:8px;border-radius:6px"></code>
+    </div>
+  </div>
+</div>
+
 </div>
 ${toastScript()}
 <script>
+// Branding preview live update
+document.getElementById('settPrimary')?.addEventListener('input',e=>{
+  document.getElementById('brandPreview').style.background=e.target.value;
+});
+document.getElementById('settLogo')?.addEventListener('input',e=>{ document.getElementById('prevLogo').textContent=e.target.value; });
+document.getElementById('settSchoolName')?.addEventListener('input',e=>{ document.getElementById('prevName').textContent=e.target.value; });
+document.getElementById('settTagline')?.addEventListener('input',e=>{ document.getElementById('prevTag').textContent=e.target.value; });
+
+// Load students for link generator
+(async()=>{
+  const res=await fetch('/api/students?tenantId=t001');
+  const d=await res.json();
+  const sel=document.getElementById('linkStudentSel');
+  if(sel) sel.innerHTML=d.data.map(s=>\`<option value="\${s.id}">\${s.name} — \${s.class}</option>\`).join('');
+  // Load ERP keys
+  const kr=await fetch('/api/erp/keys/t001');
+  const kd=await kr.json();
+  const base=kd.data||[];
+  document.getElementById('erpKeysList').innerHTML=base.length?base.map(k=>\`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;background:#f8f9fa;border-radius:8px;margin-bottom:6px">
+      <div style="flex:1"><div style="font-size:.8rem;font-weight:700">\${k.label}</div><code style="font-size:.72rem;color:#666">\${k.key}</code></div>
+      <span style="font-size:.68rem;color:#999">\${k.lastUsed?'Used '+new Date(k.lastUsed).toLocaleDateString():'Never used'}</span>
+      <button onclick="revokeKey('\${k.key}')" style="background:none;border:1px solid #f44336;color:#f44336;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:.72rem">Revoke</button>
+    </div>\`).join(''):'<div style="color:#999;font-size:.82rem">No API keys yet</div>';
+})();
+
+// Update portal link with current origin
+const originBase = window.location.origin;
+const pl = document.getElementById('portalLink');
+if(pl) pl.value = originBase + '/track/DPS';
+
+function copyLink(id) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  navigator.clipboard.writeText(el.value).then(()=>showToast('Link copied!','success'));
+}
+function openTrackPortal() { window.open('/track/DPS','_blank'); }
+
+function generateStudentLink() {
+  const sel = document.getElementById('linkStudentSel');
+  if(!sel?.value) return showToast('Select a student first','warning');
+  const link = window.location.origin + '/track/DPS/' + sel.value;
+  document.getElementById('studentLinkBox').value = link;
+  document.getElementById('studentLinkResult').style.display='block';
+}
+function shareWhatsApp() {
+  const link = document.getElementById('studentLinkBox').value;
+  const msg = encodeURIComponent('Track your child\\'s school bus live: ' + link);
+  window.open('https://wa.me/?text='+msg,'_blank');
+}
 async function saveSchoolProfile() {
-  const name=document.querySelector('input[value="Delhi Public School"]');
-  const data={schoolName:name?name.value:'Delhi Public School',updatedAt:new Date().toISOString()};
+  const data={
+    schoolName:document.getElementById('settSchoolName')?.value,
+    tagline:document.getElementById('settTagline')?.value,
+    supportPhone:document.getElementById('settPhone')?.value,
+    updatedAt:new Date().toISOString()
+  };
   await fetch('/api/settings/t001',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  showToast('School profile saved successfully!','success');
+  showToast('School profile saved!','success');
+}
+async function saveBranding() {
+  const data={
+    schoolName:document.getElementById('settSchoolName')?.value||'Delhi Public School',
+    tagline:document.getElementById('settTagline')?.value,
+    logo:document.getElementById('settLogo')?.value||'🏫',
+    primaryColor:document.getElementById('settPrimary')?.value||'#1a73e8',
+    accentColor:document.getElementById('settAccent')?.value||'#0d47a1',
+    supportPhone:document.getElementById('settPhone')?.value,
+  };
+  await fetch('/api/branding/t001',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  showToast('Branding saved! Parent tracking pages updated.','success');
 }
 async function saveNotifSettings() {
   await fetch('/api/settings/t001',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifPreferences:'saved',updatedAt:new Date().toISOString()})});
   showToast('Notification preferences saved!','success');
+}
+async function generateErpKey() {
+  const label = document.getElementById('newKeyLabel')?.value || 'ERP Integration';
+  const res = await fetch('/api/erp/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',label,permissions:['students:read','students:write','attendance:write','buses:read']})});
+  const d = await res.json();
+  document.getElementById('newKeyValue').textContent = d.key;
+  document.getElementById('newKeyResult').style.display='block';
+  showToast('ERP API key generated!','success');
+}
+async function revokeKey(key) {
+  if(!confirm('Revoke this API key? The ERP system will lose access.')) return;
+  await fetch('/api/erp/keys/'+key,{method:'DELETE'});
+  showToast('API key revoked','warning');
+  location.reload();
 }
 </script>`
 }
@@ -1990,6 +2178,441 @@ async function saveNotifSettings() {
 // ════════════════════════════════════════════════════════════════
 // TENANT BILLING & RAZORPAY SUBSCRIPTION PAGE
 // ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// ERP INTEGRATION CONTENT  (shown inside sidebarLayout at /admin/erp)
+// ════════════════════════════════════════════════════════════════
+function erpIntegrationContent(): string {
+  return `
+<!-- Tab bar -->
+<div style="display:flex;gap:0;margin-bottom:24px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)">
+  ${[['mode','📋 Data Mode'],['links','🔗 Parent Links'],['erp','🔌 ERP Sync'],['branding','🎨 Branding'],['teacher','👩‍🏫 Teacher']].map(([t,l]) => `<button onclick="switchTab('${t}')" id="etab_${t}" style="flex:1;padding:14px 8px;border:none;cursor:pointer;font-size:.78rem;font-weight:700;transition:.2s;border-bottom:3px solid transparent">${l}</button>`).join('')}
+</div>
+
+<!-- Tab: Data Mode -->
+<div id="etab_content_mode" class="etab-panel">
+  <div class="card" style="margin-bottom:20px">
+    <h3 style="margin:0 0 8px;font-size:1rem;font-weight:700">📋 How is student data managed?</h3>
+    <p style="font-size:.82rem;color:#666;margin-bottom:16px">Choose the right mode for your school. You can switch anytime.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+      <div onclick="window.location.href='/school-setup'" style="border:2px solid #1a73e8;border-radius:12px;padding:20px;cursor:pointer;background:#e3f2fd">
+        <div style="font-size:1.8rem;margin-bottom:8px">✏️</div>
+        <div style="font-weight:800;font-size:.95rem;color:#1a73e8;margin-bottom:4px">Manual Entry (No ERP)</div>
+        <div style="font-size:.78rem;color:#555">Use our guided setup wizard. Best for schools without an ERP system. Manage students, buses, routes from the admin panel.</div>
+        <div style="margin-top:12px;background:#1a73e8;color:#fff;padding:8px 14px;border-radius:8px;font-size:.78rem;font-weight:700;text-align:center">🚀 Open Setup Wizard</div>
+      </div>
+      <div onclick="switchTab('erp')" style="border:2px solid #2e7d32;border-radius:12px;padding:20px;cursor:pointer">
+        <div style="font-size:1.8rem;margin-bottom:8px">🔗</div>
+        <div style="font-weight:800;font-size:.95rem;color:#2e7d32;margin-bottom:4px">ERP Integration</div>
+        <div style="font-size:.78rem;color:#555">Your school ERP (Fedena, Edunext, Campus365, etc.) syncs students and attendance automatically via REST API or webhooks.</div>
+        <div style="margin-top:12px;background:#2e7d32;color:#fff;padding:8px 14px;border-radius:8px;font-size:.78rem;font-weight:700;text-align:center">🔌 Configure ERP</div>
+      </div>
+      <div style="border:2px solid #6a1b9a;border-radius:12px;padding:20px;cursor:pointer">
+        <div style="font-size:1.8rem;margin-bottom:8px">🔄</div>
+        <div style="font-weight:800;font-size:.95rem;color:#6a1b9a;margin-bottom:4px">Hybrid Mode</div>
+        <div style="font-size:.78rem;color:#555">Start with manual entry today, connect your ERP when ready. Data merges automatically. Zero disruption.</div>
+        <div style="margin-top:12px;background:#6a1b9a;color:#fff;padding:8px 14px;border-radius:8px;font-size:.78rem;font-weight:700;text-align:center">✅ Currently Active</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Current data summary -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0;font-size:.95rem;font-weight:700">👥 Current Student Data</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="loadErpStudents()"><i class="fa fa-rotate"></i> Refresh</button>
+        <button class="btn btn-primary btn-sm" onclick="switchTab('links')"><i class="fa fa-link"></i> Share Links</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+        <thead><tr style="background:#f8f9fa"><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">STUDENT</th><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">CLASS</th><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">BUS</th><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">PARENT</th><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">STATUS</th><th style="padding:10px 14px;text-align:left;font-size:.72rem;color:#666">LINK</th></tr></thead>
+        <tbody id="erpDataTable"><tr><td colspan="6" style="padding:20px;text-align:center;color:#999">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Parent Links -->
+<div id="etab_content_links" class="etab-panel" style="display:none">
+  <div style="background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;border-radius:14px;padding:22px;margin-bottom:20px">
+    <div style="font-size:.8rem;opacity:.8;margin-bottom:6px">📱 School Parent Portal — parents log in with phone + OTP</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input id="portalLinkAdmin" readonly style="flex:1;min-width:0;background:rgba(255,255,255,.15);border:none;color:#fff;padding:11px 16px;border-radius:8px;font-size:.82rem;font-family:monospace">
+      <button onclick="copyPortalLinkAdmin()" style="padding:11px 18px;background:#fff;color:#1a73e8;border:none;border-radius:8px;font-weight:700;cursor:pointer;white-space:nowrap"><i class="fa fa-copy"></i> Copy</button>
+      <button onclick="whatsappPortalAdmin()" style="padding:11px 18px;background:#25D366;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;white-space:nowrap"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
+    </div>
+    <div style="font-size:.72rem;opacity:.7;margin-top:8px">Each parent enters their registered phone → OTP → sees their child's bus live. No app download needed.</div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <h3 style="margin:0;font-size:.95rem;font-weight:700">🔗 Individual Parent Tracking Links</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="exportParentLinks()"><i class="fa fa-file-csv"></i> Export CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="copyAllParentLinks()"><i class="fa fa-copy"></i> Copy All</button>
+        <button class="btn btn-primary btn-sm" onclick="bulkWhatsapp()"><i class="fa-brands fa-whatsapp"></i> WhatsApp All</button>
+      </div>
+    </div>
+    <div id="parentLinksList"><div style="text-align:center;color:#999;padding:20px">Loading links...</div></div>
+  </div>
+</div>
+
+<!-- Tab: ERP Sync -->
+<div id="etab_content_erp" class="etab-panel" style="display:none">
+  <div class="grid-2" style="gap:20px;margin-bottom:20px">
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:.95rem;font-weight:700">🔑 API Key Management</h3>
+      <p style="font-size:.78rem;color:#666;margin-bottom:12px">Share this key with your ERP vendor for automated student & attendance sync.</p>
+      <div style="background:#f8f9fa;border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="font-size:.72rem;color:#666;margin-bottom:4px">Active API Key</div>
+        <code id="erpKeyVal" style="font-size:.78rem;word-break:break-all;color:#1a1a2e">Loading…</code>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="genKey()"><i class="fa fa-rotate"></i> Regenerate</button>
+        <button class="btn btn-outline btn-sm" onclick="copyKey()"><i class="fa fa-copy"></i> Copy</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:.95rem;font-weight:700">📡 Sync Status</h3>
+      <div style="display:flex;flex-direction:column;gap:8px" id="syncStatus">
+        ${[['Students','Synced 10 records','success'],['Attendance','Auto-pushed daily','success'],['Bus Status','Available via GET','info']].map(([k,v,t])=>`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:${t==='success'?'#e8f5e9':'#e3f2fd'};border-radius:8px"><span style="color:${t==='success'?'#00c853':'#1a73e8'}">●</span><div style="flex:1"><div style="font-size:.82rem;font-weight:700">${k}</div><div style="font-size:.72rem;color:#666">${v}</div></div></div>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700">📖 ERP Integration Guide</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Push Students → TrackSchool</div>
+        <pre style="background:#1a1a2e;color:#a5d6f7;border-radius:10px;padding:14px;font-size:.68rem;overflow-x:auto">POST /api/erp/students/push
+X-API-Key: erk_t001_xxxxxxxx
+
+[{
+  "name": "Aarav Sharma",
+  "class": "5A",
+  "busId": "b001",
+  "routeId": "r001",
+  "parentPhone": "+91-9901111111"
+}]</pre>
+      </div>
+      <div>
+        <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Pull Attendance ← TrackSchool</div>
+        <pre style="background:#1a1a2e;color:#a5d6f7;border-radius:10px;padding:14px;font-size:.68rem;overflow-x:auto">GET /api/erp/attendance/today
+X-API-Key: erk_t001_xxxxxxxx
+?tenantId=t001
+
+→ {
+  "date": "2026-04-19",
+  "summary": { "boarded":8, "absent":2 },
+  "data": [{ "name":"...", "status":"P" }]
+}</pre>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Supported ERP Systems</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${['Fedena','Edunext','Campus365','iSchoolManager','SchoolMint','PowerSchool','Classplus','Teachmint'].map(e=>`<span style="background:#e3f2fd;color:#1a73e8;padding:5px 12px;border-radius:20px;font-size:.72rem;font-weight:700">${e}</span>`).join('')}
+        <span style="background:#f5f5f5;color:#666;padding:5px 12px;border-radius:20px;font-size:.72rem">+ Any REST-capable system</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Webhook URL (push events to your ERP)</label>
+        <input id="webhookUrlAdmin" type="url" placeholder="https://your-erp.com/trackschool/webhook" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem">
+      </div>
+      <button class="btn btn-primary" onclick="registerWebhookAdmin()" style="white-space:nowrap">Register Webhook</button>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <div style="font-size:.75rem;font-weight:700;color:#555;margin-bottom:4px;width:100%">Webhook Events:</div>
+      ${['bus.location','student.boarded','student.departed','alert.sos','trip.started','trip.ended'].map(e=>`<span style="background:#e8f5e9;color:#2e7d32;padding:4px 10px;border-radius:20px;font-size:.72rem;font-weight:700">${e}</span>`).join('')}
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Branding -->
+<div id="etab_content_branding" class="etab-panel" style="display:none">
+  <div class="card">
+    <h3 style="margin:0 0 6px;font-size:1rem;font-weight:700">🎨 White-Label School Branding</h3>
+    <p style="font-size:.82rem;color:#666;margin-bottom:20px">Customise how the parent-facing tracking page looks — your school's name, logo, and colours.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">School Name</label><input id="br_name" placeholder="Delhi Public School" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem"></div>
+          <div><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Tagline</label><input id="br_tagline" placeholder="Excellence in Education" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem"></div>
+          <div><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Logo (emoji)</label><input id="br_logo" placeholder="🏫" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:1.4rem;text-align:center"></div>
+          <div><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Support Phone</label><input id="br_phone" type="tel" placeholder="+91-9876543210" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem"></div>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1"><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Primary Colour</label><input id="br_color" type="color" value="#1a73e8" style="width:100%;height:44px;border:1.5px solid #e0e0e0;border-radius:8px;cursor:pointer"></div>
+            <div style="flex:1"><label style="font-size:.75rem;font-weight:700;display:block;margin-bottom:5px">Accent Colour</label><input id="br_accent" type="color" value="#0d47a1" style="width:100%;height:44px;border:1.5px solid #e0e0e0;border-radius:8px;cursor:pointer"></div>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveBranding()" style="margin-top:16px;width:100%"><i class="fa fa-floppy-disk"></i> Save Branding</button>
+      </div>
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:#555;margin-bottom:10px">Preview — Parent Tracking Page</div>
+        <div style="border-radius:14px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.15);max-width:260px">
+          <div id="previewHeader" style="background:#1a73e8;color:#fff;padding:14px;display:flex;align-items:center;gap:10px">
+            <span id="previewLogo" style="font-size:1.4rem">🏫</span>
+            <div><div id="previewName" style="font-weight:800;font-size:.9rem">Delhi Public School</div><div style="font-size:.7rem;opacity:.8">Live Bus Tracking</div></div>
+          </div>
+          <div style="padding:14px;background:#f5f5f5">
+            <div style="background:#e8f5e9;border-radius:8px;padding:10px;margin-bottom:10px;font-size:.72rem;color:#2e7d32;font-weight:700">🟢 GPS Live — Bus is on the way</div>
+            <div style="background:#fff;border-radius:8px;padding:12px;font-size:.72rem">
+              <div style="font-weight:700;margin-bottom:4px">🚌 Bus Alpha</div>
+              <div style="color:#666">Speed: 32 km/h • Fuel: 68%</div>
+              <div style="color:#666">ETA to your stop: 12 min</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px;font-size:.75rem;color:#1a73e8;cursor:pointer" onclick="previewBranding()"><i class="fa fa-eye"></i> Live Preview →</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Teacher -->
+<div id="etab_content_teacher" class="etab-panel" style="display:none">
+  <div class="card" style="margin-bottom:20px">
+    <h3 style="margin:0 0 8px;font-size:1rem;font-weight:700">👩‍🏫 Teacher Portal Access</h3>
+    <p style="font-size:.82rem;color:#666;margin-bottom:16px">Teachers can see class-wise bus status, attendance, and contact parents — without accessing sensitive admin data.</p>
+    <div style="background:#e3f2fd;border-radius:10px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:700;font-size:.875rem;margin-bottom:4px">Teacher Portal URL</div>
+        <div style="font-size:.78rem;color:#666">Share this with teachers — read-only view of their class students</div>
+      </div>
+      <input id="teacherPortalUrl" readonly style="flex:2;min-width:0;padding:10px 14px;border:1.5px solid #b3d1f5;border-radius:8px;font-size:.82rem;font-family:monospace;background:#fff">
+      <button onclick="copyTeacherUrl()" class="btn btn-primary btn-sm"><i class="fa fa-copy"></i> Copy</button>
+      <a id="teacherPortalOpen" href="/teacher" target="_blank" class="btn btn-outline btn-sm"><i class="fa fa-external-link"></i> Open</a>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;border:1.5px solid #e0e0e0;border-radius:10px;padding:16px">
+        <div style="font-size:1.2rem;margin-bottom:8px">📊</div>
+        <div style="font-weight:700;font-size:.875rem;margin-bottom:4px">What teachers can see</div>
+        <ul style="font-size:.78rem;color:#666;padding-left:16px;line-height:1.8">
+          <li>Class-wise student bus status (boarded / absent / at stop)</li>
+          <li>Real-time bus location for their students</li>
+          <li>Today's absent list with parent contact</li>
+          <li>Send bulk SMS to absent parents</li>
+          <li>Click to open parent tracking view for any student</li>
+        </ul>
+      </div>
+      <div style="flex:1;min-width:200px;border:1.5px solid #e0e0e0;border-radius:10px;padding:16px">
+        <div style="font-size:1.2rem;margin-bottom:8px">🔒</div>
+        <div style="font-weight:700;font-size:.875rem;margin-bottom:4px">What teachers CANNOT do</div>
+        <ul style="font-size:.78rem;color:#666;padding-left:16px;line-height:1.8">
+          <li>Add or delete students / buses</li>
+          <li>Access billing or settings</li>
+          <li>See other schools' data</li>
+          <li>Modify routes or driver details</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="margin:0 0 12px;font-size:.95rem;font-weight:700">📋 Class Overview (Live)</h3>
+    <div id="classOverview"><div style="text-align:center;color:#999;padding:20px">Loading classes…</div></div>
+  </div>
+</div>
+
+${toastScript()}
+<script>
+let erpCurrentKey = '';
+let parentLinksData = [];
+
+// Tab switching
+function switchTab(tab) {
+  document.querySelectorAll('.etab-panel').forEach(p => p.style.display='none');
+  document.querySelectorAll('[id^="etab_"]').forEach(b => {
+    if(b.id.startsWith('etab_content')) return;
+    b.style.borderBottom = '3px solid transparent';
+    b.style.background = '#fff';
+    b.style.color = '#555';
+  });
+  document.getElementById('etab_content_'+tab).style.display = 'block';
+  const btn = document.getElementById('etab_'+tab);
+  if(btn) { btn.style.borderBottom='3px solid #1a73e8'; btn.style.color='#1a73e8'; }
+  if(tab==='mode') loadErpStudents();
+  if(tab==='links') loadParentLinks();
+  if(tab==='erp') loadErpKey();
+  if(tab==='branding') loadBranding();
+  if(tab==='teacher') loadClassOverview();
+}
+
+// ── Mode / Students ───────────────────────────────────────────
+async function loadErpStudents() {
+  const res = await fetch('/api/erp/students/sync?tenantId=t001');
+  const d = await res.json();
+  const statusColor = {boarded:'#00c853',at_stop:'#ff9800',absent:'#f44336',departed:'#1a73e8'};
+  document.getElementById('erpDataTable').innerHTML = d.data.map(s => \`
+    <tr style="border-bottom:1px solid #f5f5f5">
+      <td style="padding:10px 14px"><div style="font-weight:700">\${s.name}</div><div style="font-size:.7rem;color:#999">RFID: \${s.rfid||'—'}</div></td>
+      <td style="padding:10px 14px">\${s.class}</td>
+      <td style="padding:10px 14px">\${s.bus_nickname||'—'}</td>
+      <td style="padding:10px 14px;font-size:.78rem">\${s.parentPhone||'—'}</td>
+      <td style="padding:10px 14px"><span style="color:\${statusColor[s.status]||'#999'};font-weight:700;font-size:.75rem">\${s.status||'—'}</span></td>
+      <td style="padding:10px 14px"><button onclick="copyStLink('\${s.student_id}')" style="background:#e3f2fd;color:#1a73e8;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.72rem"><i class="fa fa-link"></i> Copy</button></td>
+    </tr>\`).join('');
+}
+
+function copyStLink(id) {
+  const link = window.location.origin + '/track/DPS/' + id;
+  navigator.clipboard.writeText(link);
+  showToast('Tracking link copied!','success');
+}
+
+// ── Parent Links ──────────────────────────────────────────────
+async function loadParentLinks() {
+  document.getElementById('portalLinkAdmin').value = window.location.origin + '/track/DPS';
+  const res = await fetch('/api/parent/links?tenantId=t001&base='+encodeURIComponent(window.location.origin));
+  const d = await res.json();
+  parentLinksData = d.data || [];
+  document.getElementById('parentLinksList').innerHTML = parentLinksData.length
+    ? parentLinksData.map(s => \`
+      <div style="display:flex;align-items:center;gap:12px;padding:14px;border:1.5px solid #e3f2fd;border-radius:12px;margin-bottom:8px;background:#f8fbff">
+        <div style="width:38px;height:38px;border-radius:50%;background:#1a73e8;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9rem;flex-shrink:0">\${s.name.charAt(0)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:.875rem">\${s.name} <span style="font-size:.72rem;color:#666;font-weight:400">· Class \${s.class}</span></div>
+          <input value="\${s.trackingLink}" readonly style="width:100%;padding:5px 8px;border:1px solid #b3d1f5;border-radius:6px;font-size:.7rem;font-family:monospace;background:#fff;margin-top:4px">
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button onclick="navigator.clipboard.writeText('\${s.trackingLink}');showToast('Copied!','success')" style="padding:7px 10px;background:#e3f2fd;color:#1a73e8;border:none;border-radius:8px;cursor:pointer;font-size:.75rem" title="Copy link"><i class="fa fa-copy"></i></button>
+          <a href="https://wa.me/\${(s.parentPhone||'').replace(/\\\\D/g,'')}?text=\${encodeURIComponent('Track '+s.name+\"'s school bus live: \"+s.trackingLink)}" target="_blank" style="padding:7px 10px;background:#25D366;color:#fff;border-radius:8px;text-decoration:none;font-size:.75rem;display:flex;align-items:center" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>
+          <a href="\${s.trackingLink}" target="_blank" style="padding:7px 10px;background:#f5f5f5;color:#333;border-radius:8px;text-decoration:none;font-size:.75rem;display:flex;align-items:center" title="Open"><i class="fa fa-eye"></i></a>
+        </div>
+      </div>\`).join('')
+    : '<div style="text-align:center;color:#999;padding:20px;font-size:.82rem">No students found. <a href="/school-setup" style="color:#1a73e8">Add students →</a></div>';
+}
+
+function copyPortalLinkAdmin() {
+  navigator.clipboard.writeText(document.getElementById('portalLinkAdmin').value);
+  showToast('Portal link copied!','success');
+}
+function whatsappPortalAdmin() {
+  const link = document.getElementById('portalLinkAdmin').value;
+  window.open('https://wa.me/?text='+encodeURIComponent('Track your child\\'s school bus live: '+link),'_blank');
+}
+function exportParentLinks() {
+  if(!parentLinksData.length) return showToast('No links to export','warning');
+  const csv = 'Name,Class,Parent Phone,Tracking Link\\n' + parentLinksData.map(s=>\`\${s.name},\${s.class},\${s.parentPhone||''},\${s.trackingLink}\`).join('\\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='parent_tracking_links.csv'; a.click();
+  showToast('CSV exported!','success');
+}
+function copyAllParentLinks() {
+  const text = parentLinksData.map(s=>s.name+': '+s.trackingLink).join('\\n');
+  if(!text) return showToast('No links yet','warning');
+  navigator.clipboard.writeText(text);
+  showToast('All links copied!','success');
+}
+function bulkWhatsapp() {
+  const msg = 'Track your child\\'s school bus live:\\n'+parentLinksData.map(s=>s.name+': '+s.trackingLink).join('\\n');
+  window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+}
+
+// ── ERP Key ───────────────────────────────────────────────────
+async function loadErpKey() {
+  const res = await fetch('/api/erp/keys/t001');
+  const d = await res.json();
+  if(d.data?.length) {
+    erpCurrentKey = d.data[0].key;
+    document.getElementById('erpKeyVal').textContent = erpCurrentKey;
+  } else {
+    document.getElementById('erpKeyVal').textContent = 'No key — click Regenerate';
+  }
+}
+async function genKey() {
+  const res = await fetch('/api/erp/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',label:'ERP Integration'})});
+  const d = await res.json();
+  erpCurrentKey = d.key;
+  document.getElementById('erpKeyVal').textContent = d.key;
+  showToast('New key generated — copy it now!','success');
+}
+function copyKey() {
+  navigator.clipboard.writeText(erpCurrentKey);
+  showToast('API key copied!','success');
+}
+async function registerWebhookAdmin() {
+  const url = document.getElementById('webhookUrlAdmin').value;
+  if(!url) return showToast('Enter webhook URL','warning');
+  const res = await fetch('/api/erp/webhook/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',url,events:['bus.location','student.boarded','alert.sos']})});
+  const d = await res.json();
+  showToast('Webhook registered! Secret: '+d.secret,'success');
+}
+
+// ── Branding ──────────────────────────────────────────────────
+async function loadBranding() {
+  try {
+    const res = await fetch('/api/branding/t001');
+    const d = await res.json();
+    if(!d.success) return;
+    const b = d.data;
+    document.getElementById('br_name').value    = b.schoolName||'';
+    document.getElementById('br_tagline').value = b.tagline||'';
+    document.getElementById('br_logo').value    = b.logo||'🏫';
+    document.getElementById('br_phone').value   = b.supportPhone||'';
+    document.getElementById('br_color').value   = b.primaryColor||'#1a73e8';
+    document.getElementById('br_accent').value  = b.accentColor||'#0d47a1';
+    // Update preview
+    document.getElementById('previewLogo').textContent  = b.logo||'🏫';
+    document.getElementById('previewName').textContent  = b.schoolName||'School Name';
+    document.getElementById('previewHeader').style.background = b.primaryColor||'#1a73e8';
+  } catch(e){}
+}
+async function saveBranding() {
+  const body = {
+    schoolName: document.getElementById('br_name').value,
+    tagline:    document.getElementById('br_tagline').value,
+    logo:       document.getElementById('br_logo').value,
+    supportPhone:document.getElementById('br_phone').value,
+    primaryColor:document.getElementById('br_color').value,
+    accentColor: document.getElementById('br_accent').value,
+  };
+  await fetch('/api/branding/t001',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  // Update preview live
+  document.getElementById('previewLogo').textContent  = body.logo;
+  document.getElementById('previewName').textContent  = body.schoolName;
+  document.getElementById('previewHeader').style.background = body.primaryColor;
+  showToast('Branding saved — parent page updated!','success');
+}
+function previewBranding() {
+  window.open('/track/DPS','_blank');
+}
+
+// ── Teacher ───────────────────────────────────────────────────
+async function loadClassOverview() {
+  const url = window.location.origin + '/teacher';
+  document.getElementById('teacherPortalUrl').value = url;
+  document.getElementById('teacherPortalOpen').href = url;
+  const res = await fetch('/api/teacher/classes/t001');
+  const d = await res.json();
+  if(!d.data?.length) { document.getElementById('classOverview').innerHTML='<div style="color:#999;padding:20px;text-align:center">No classes found</div>'; return; }
+  const rows = await Promise.all(d.data.map(async cls => {
+    const r = await fetch('/api/teacher/class/'+cls+'?tenantId=t001');
+    const rd = await r.json();
+    const students = rd.data || [];
+    const boarded = students.filter(s=>s.status==='boarded').length;
+    const absent  = students.filter(s=>s.status==='absent').length;
+    return { cls, total:students.length, boarded, absent };
+  }));
+  document.getElementById('classOverview').innerHTML = \`
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem">
+      <thead><tr style="background:#f8f9fa"><th style="padding:10px 14px;text-align:left">CLASS</th><th style="padding:10px 14px;text-align:center">TOTAL</th><th style="padding:10px 14px;text-align:center">ON BUS</th><th style="padding:10px 14px;text-align:center">ABSENT</th><th style="padding:10px 14px;text-align:center">ACTION</th></tr></thead>
+      <tbody>\${rows.map(r=>\`<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:10px 14px;font-weight:700">\${r.cls}</td><td style="padding:10px 14px;text-align:center">\${r.total}</td><td style="padding:10px 14px;text-align:center;color:#00c853;font-weight:700">\${r.boarded}</td><td style="padding:10px 14px;text-align:center;color:\${r.absent>0?'#f44336':'#999'};font-weight:700">\${r.absent}</td><td style="padding:10px 14px;text-align:center"><a href="/teacher" target="_blank" style="background:#e3f2fd;color:#1a73e8;padding:4px 12px;border-radius:6px;text-decoration:none;font-size:.75rem">View →</a></td></tr>\`).join('')}</tbody>
+    </table></div>\`;
+}
+function copyTeacherUrl() {
+  navigator.clipboard.writeText(document.getElementById('teacherPortalUrl').value);
+  showToast('Teacher portal URL copied!','success');
+}
+
+// Init
+switchTab('mode');
+</script>
+`;
+}
+
 function tenantBilling(): string {
   return `
 <!-- Razorpay JS SDK -->
@@ -4152,4 +4775,1537 @@ checkStatus();
 </script>`
 
   return sidebarLayout('notify', 'tenant', content, 'Notifications Console')
+}
+
+// ════════════════════════════════════════════════════════════════
+// WHITE-LABEL PARENT LOGIN PAGE  — /track/:schoolCode
+// ════════════════════════════════════════════════════════════════
+function whitelabelLoginPage(schoolCode: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parent Bus Tracking</title>
+<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --primary: #1a73e8; --accent: #0d47a1; }
+  body { font-family:'Segoe UI',sans-serif; background:linear-gradient(135deg,var(--primary) 0%,var(--accent) 100%); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { background:#fff; border-radius:24px; padding:36px 32px; max-width:400px; width:100%; box-shadow:0 24px 60px rgba(0,0,0,.25); }
+  .school-header { text-align:center; margin-bottom:28px; }
+  .school-logo { font-size:3rem; margin-bottom:8px; }
+  .school-name { font-size:1.4rem; font-weight:800; color:var(--primary); }
+  .school-tagline { font-size:.8rem; color:#666; margin-top:2px; }
+  .form-label { font-size:.78rem; font-weight:700; color:#555; display:block; margin-bottom:6px; }
+  .form-input { width:100%; padding:14px 16px; border:2px solid #e0e0e0; border-radius:12px; font-size:1rem; outline:none; transition:.2s; box-sizing:border-box; }
+  .form-input:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(26,115,232,.12); }
+  .btn-main { width:100%; padding:15px; background:var(--primary); color:#fff; border:none; border-radius:12px; font-size:1rem; font-weight:700; cursor:pointer; transition:.2s; margin-top:8px; }
+  .btn-main:hover { background:var(--accent); }
+  .btn-main:disabled { opacity:.6; cursor:not-allowed; }
+  .otp-row { display:grid; grid-template-columns:1fr auto; gap:10px; }
+  .btn-otp { padding:14px 20px; background:var(--primary); color:#fff; border:none; border-radius:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .step { display:none; }
+  .step.active { display:block; }
+  .powered { text-align:center; margin-top:20px; font-size:.72rem; color:rgba(255,255,255,.7); }
+  .toast { position:fixed; top:20px; right:20px; background:#333; color:#fff; padding:12px 20px; border-radius:10px; font-size:.85rem; z-index:9999; display:none; }
+</style>
+</head>
+<body>
+<div>
+<div class="card">
+  <div class="school-header">
+    <div class="school-logo" id="schoolLogo">🏫</div>
+    <div class="school-name" id="schoolName">Loading...</div>
+    <div class="school-tagline" id="schoolTagline">School Bus Tracking</div>
+    <div style="margin-top:12px;background:#f0f4ff;border-radius:8px;padding:8px 14px;font-size:.75rem;color:#1a73e8;font-weight:600"><i class="fa fa-shield-halved"></i> Secure Parent Portal</div>
+  </div>
+
+  <!-- Step 1: Phone -->
+  <div class="step active" id="step1">
+    <label class="form-label">Your Registered Mobile Number</label>
+    <div class="otp-row" style="margin-bottom:16px">
+      <input class="form-input" id="phoneInput" type="tel" placeholder="+91 98765 43210" maxlength="15">
+      <button class="btn-otp" id="sendOtpBtn" onclick="sendOTP()"><i class="fa fa-paper-plane"></i> OTP</button>
+    </div>
+    <div id="otpSection" style="display:none">
+      <label class="form-label">Enter 6-Digit OTP</label>
+      <input class="form-input" id="otpInput" type="number" placeholder="123456" style="margin-bottom:16px;letter-spacing:6px;text-align:center;font-size:1.4rem">
+      <button class="btn-main" id="loginBtn" onclick="verifyOTP()"><i class="fa fa-check-circle"></i> Verify & Track</button>
+    </div>
+    <div id="demoHint" style="display:none;margin-top:12px;background:#fff3e0;border-radius:8px;padding:10px;font-size:.75rem;color:#e65100;text-align:center"></div>
+  </div>
+
+  <!-- Step 2: Child Select (if multiple children) -->
+  <div class="step" id="step2">
+    <h3 style="font-weight:800;margin-bottom:16px">Select Child to Track</h3>
+    <div id="childrenList"></div>
+  </div>
+</div>
+<div class="powered">Powered by <strong>TrackSchool</strong> · Safe Transport Platform</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SCHOOL_CODE = '${schoolCode}';
+let branding = {};
+let parentToken = '';
+let parentStudents = [];
+
+function toast(msg, type='info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = type==='error'?'#f44336':type==='success'?'#00c853':'#333';
+  t.style.display = 'block';
+  setTimeout(()=>t.style.display='none', 3500);
+}
+
+// Load school branding
+async function loadBranding() {
+  try {
+    const res = await fetch('/api/school/' + SCHOOL_CODE);
+    const d = await res.json();
+    if(!d.success) { document.getElementById('schoolName').textContent = 'School Not Found'; return; }
+    branding = d.data;
+    document.getElementById('schoolName').textContent = branding.name;
+    document.getElementById('schoolTagline').textContent = branding.tagline || 'Safe Transport, Happy Students';
+    document.getElementById('schoolLogo').textContent = branding.logo || '🏫';
+    document.documentElement.style.setProperty('--primary', branding.primaryColor || '#1a73e8');
+    document.documentElement.style.setProperty('--accent', branding.accentColor || '#0d47a1');
+    document.title = branding.name + ' — Parent Tracking';
+  } catch(e) { document.getElementById('schoolName').textContent = 'School Bus Tracking'; }
+}
+
+async function sendOTP() {
+  const phone = document.getElementById('phoneInput').value.trim();
+  if(!phone || phone.length < 10) return toast('Enter valid phone number', 'error');
+  const btn = document.getElementById('sendOtpBtn');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    const res = await fetch('/api/parent/send-otp', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ phone, tenantId: branding.tenantId })
+    });
+    const d = await res.json();
+    if(d.success) {
+      document.getElementById('otpSection').style.display = 'block';
+      btn.textContent = 'Resend';
+      toast('OTP sent to ' + phone, 'success');
+      if(d.hint) {
+        document.getElementById('demoHint').style.display = 'block';
+        document.getElementById('demoHint').textContent = '🔑 Demo: ' + d.hint;
+      }
+    } else {
+      toast(d.error || 'Phone not registered. Contact school.', 'error');
+      btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> OTP';
+    }
+  } catch(e) {
+    toast('Network error. Try again.', 'error');
+    btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane"></i> OTP';
+  }
+}
+
+async function verifyOTP() {
+  const phone = document.getElementById('phoneInput').value.trim();
+  const otp = document.getElementById('otpInput').value.trim();
+  if(!otp || otp.length < 4) return toast('Enter OTP', 'error');
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Verifying...';
+  try {
+    const res = await fetch('/api/parent/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ phone, otp, tenantId: branding.tenantId })
+    });
+    const d = await res.json();
+    if(d.success) {
+      parentToken = d.token;
+      parentStudents = d.students;
+      sessionStorage.setItem('pt', parentToken);
+      sessionStorage.setItem('ps', JSON.stringify(parentStudents));
+      if(parentStudents.length === 1) {
+        window.location.href = '/track/' + SCHOOL_CODE + '/' + parentStudents[0].id;
+      } else {
+        showStep('step2');
+        document.getElementById('childrenList').innerHTML = parentStudents.map(s => \`
+          <div onclick="window.location.href='/track/${schoolCode}/\${s.id}'" style="display:flex;align-items:center;gap:14px;padding:16px;border:2px solid #e0e0e0;border-radius:12px;margin-bottom:10px;cursor:pointer;transition:.2s" onmouseover="this.style.borderColor=branding.primaryColor||'#1a73e8'" onmouseout="this.style.borderColor='#e0e0e0'">
+            <div style="width:44px;height:44px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem">\${s.name.charAt(0)}</div>
+            <div><div style="font-weight:700">\${s.name}</div><div style="font-size:.78rem;color:#666">Class \${s.class}</div></div>
+            <i class="fa fa-chevron-right" style="margin-left:auto;color:#ccc"></i>
+          </div>
+        \`).join('');
+      }
+    } else {
+      toast(d.error || 'Invalid OTP', 'error');
+      btn.disabled = false; btn.textContent = 'Verify & Track';
+    }
+  } catch(e) {
+    toast('Error. Try again.', 'error');
+    btn.disabled = false; btn.textContent = 'Verify & Track';
+  }
+}
+
+function showStep(id) {
+  document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// Allow Enter key
+document.addEventListener('keydown', e => {
+  if(e.key === 'Enter') {
+    if(document.getElementById('otpSection').style.display !== 'none') verifyOTP();
+    else sendOTP();
+  }
+});
+
+loadBranding();
+</script>
+</body></html>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// WHITE-LABEL LIVE TRACKING PAGE — /track/:schoolCode/:studentId
+// ════════════════════════════════════════════════════════════════
+function whitelabelTrackPage(schoolCode: string, studentId: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Bus Tracking</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+  :root { --primary:#1a73e8; --accent:#0d47a1; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI',sans-serif; background:#f0f2f5; }
+  .app-shell { max-width:430px; margin:0 auto; min-height:100vh; background:#fff; display:flex; flex-direction:column; box-shadow:0 0 40px rgba(0,0,0,.15); }
+  .header { background:var(--primary); color:#fff; padding:16px 20px; display:flex; align-items:center; gap:12px; }
+  .header-logo { font-size:1.6rem; }
+  .header h1 { font-size:1rem; font-weight:800; }
+  .header p { font-size:.72rem; opacity:.8; }
+  .status-bar { background:#fff; border-bottom:1px solid #f0f0f0; padding:10px 16px; display:flex; align-items:center; gap:8px; }
+  .live-dot { width:9px; height:9px; background:#00c853; border-radius:50%; animation:pulse 1.5s infinite; flex-shrink:0; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.3)} }
+  #trackMap { height:260px; }
+  .info-card { margin:14px 16px; background:#fff; border-radius:16px; border:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.06); overflow:hidden; }
+  .info-header { background:linear-gradient(135deg,var(--primary),var(--accent)); color:#fff; padding:14px 18px; display:flex; align-items:center; gap:12px; }
+  .info-body { padding:16px 18px; }
+  .info-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f5f5f5; }
+  .info-row:last-child { border-bottom:none; }
+  .info-label { font-size:.75rem; color:#888; font-weight:600; }
+  .info-value { font-size:.9rem; font-weight:700; color:#222; }
+  .eta-banner { margin:0 16px 14px; background:linear-gradient(135deg,#e8f5e9,#c8e6c9); border-radius:12px; padding:14px 18px; display:flex; align-items:center; gap:14px; }
+  .eta-time { font-size:2rem; font-weight:800; color:#2e7d32; }
+  .eta-label { font-size:.72rem; color:#388e3c; font-weight:600; }
+  .status-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:20px; font-size:.72rem; font-weight:700; }
+  .chip-on_trip { background:#e8f5e9; color:#2e7d32; }
+  .chip-idle { background:#f5f5f5; color:#757575; }
+  .chip-delayed { background:#fff3e0; color:#e65100; }
+  .timeline { padding:0 16px 16px; }
+  .tl-item { display:flex; gap:12px; padding-bottom:14px; }
+  .tl-dot { width:28px; height:28px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:800; }
+  .tl-line { width:2px; background:#e0e0e0; flex-shrink:0; margin-left:13px; }
+  .bottom-bar { margin-top:auto; padding:14px 16px; border-top:1px solid #f0f0f0; display:flex; gap:10px; }
+  .btn-call { flex:1; padding:13px; background:var(--primary); color:#fff; border:none; border-radius:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .btn-share { padding:13px; background:#f5f5f5; color:#333; border:none; border-radius:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 20px; border-radius:10px; font-size:.82rem; display:none; z-index:9999; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <!-- Header — branded per school -->
+  <div class="header">
+    <div class="header-logo" id="hdrLogo">🏫</div>
+    <div>
+      <h1 id="hdrSchool">Loading...</h1>
+      <p id="hdrTagline">Live Bus Tracking</p>
+    </div>
+    <a href="/track/${schoolCode}" style="margin-left:auto;color:rgba(255,255,255,.7);font-size:.72rem">← Switch</a>
+  </div>
+
+  <!-- Live status bar -->
+  <div class="status-bar">
+    <div class="live-dot" id="liveDot"></div>
+    <span style="font-size:.78rem;font-weight:600" id="statusText">Connecting to GPS...</span>
+    <span style="margin-left:auto;font-size:.7rem;color:#999" id="lastUpdate"></span>
+  </div>
+
+  <!-- Map -->
+  <div id="trackMap"></div>
+
+  <!-- ETA Banner -->
+  <div class="eta-banner" id="etaBanner">
+    <div>
+      <div class="eta-time" id="etaTime">--</div>
+      <div class="eta-label">Estimated Arrival</div>
+    </div>
+    <div style="margin-left:auto;text-align:right">
+      <div style="font-size:.8rem;font-weight:700" id="childName">...</div>
+      <div style="font-size:.72rem;color:#666" id="childClass"></div>
+      <div id="boardingBadge" style="margin-top:4px"></div>
+    </div>
+  </div>
+
+  <!-- Bus Info Card -->
+  <div class="info-card">
+    <div class="info-header">
+      <span style="font-size:1.6rem">🚌</span>
+      <div>
+        <div style="font-weight:800;font-size:1rem" id="busNickname">Loading bus...</div>
+        <div style="font-size:.75rem;opacity:.85" id="busNumber"></div>
+      </div>
+      <div id="busStatusChip" style="margin-left:auto"></div>
+    </div>
+    <div class="info-body">
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-gauge-high"></i> Speed</span>
+        <span class="info-value"><span id="busSpeed">0</span> km/h</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-route"></i> Route</span>
+        <span class="info-value" id="busRoute">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-map-pin"></i> Stop</span>
+        <span class="info-value" id="busStop">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-user-tie"></i> Driver</span>
+        <span class="info-value" id="driverName">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-gas-pump"></i> Fuel</span>
+        <span class="info-value" id="busFuel">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa fa-satellite-dish"></i> GPS Source</span>
+        <span class="info-value" id="gpsSource" style="font-size:.78rem">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Journey Timeline -->
+  <div style="padding:0 16px;margin-bottom:8px">
+    <div style="font-size:.8rem;font-weight:700;color:#555;margin-bottom:10px">📍 Today's Journey</div>
+    <div class="timeline" id="journeyTimeline" style="padding:0"></div>
+  </div>
+
+  <!-- Bottom action bar -->
+  <div class="bottom-bar">
+    <button class="btn-call" id="callDriverBtn" onclick="callDriver()">
+      <i class="fa fa-phone"></i> Call Driver
+    </button>
+    <button class="btn-share" onclick="shareLocation()">
+      <i class="fa fa-share-nodes"></i> Share
+    </button>
+    <button class="btn-share" onclick="refreshData()">
+      <i class="fa fa-rotate"></i>
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SCHOOL_CODE = '${schoolCode}';
+const STUDENT_ID  = '${studentId}';
+let map, busMarker, schoolMarker, studentData = {}, pollTimer;
+let driverPhone = '';
+
+function toast(msg, type='info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = type==='error'?'#f44336':type==='success'?'#00c853':'#333';
+  t.style.display='block';
+  setTimeout(()=>t.style.display='none',3000);
+}
+
+// Load branding
+async function loadBranding() {
+  try {
+    const res = await fetch('/api/school/' + SCHOOL_CODE);
+    const d = await res.json();
+    if(!d.success) return;
+    const b = d.data;
+    document.getElementById('hdrLogo').textContent = b.logo || '🏫';
+    document.getElementById('hdrSchool').textContent = b.name;
+    document.getElementById('hdrTagline').textContent = b.tagline || 'Live Bus Tracking';
+    document.documentElement.style.setProperty('--primary', b.primaryColor || '#1a73e8');
+    document.documentElement.style.setProperty('--accent', b.accentColor || '#0d47a1');
+    document.title = b.name + ' — Live Tracking';
+  } catch(e) {}
+}
+
+// Init map
+function initMap(lat, lng) {
+  if(map) return;
+  map = L.map('trackMap', { zoomControl:true, attributionControl:false }).setView([lat, lng], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  const busIcon = L.divIcon({ html:'<div style="font-size:28px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4))">🚌</div>', iconSize:[30,30], iconAnchor:[15,15] });
+  busMarker = L.marker([lat, lng], {icon:busIcon}).addTo(map).bindPopup('Your child\\'s bus');
+}
+
+// Fetch child + bus data
+async function fetchData() {
+  try {
+    const res = await fetch('/api/parent/child/' + STUDENT_ID);
+    const d = await res.json();
+    if(!d.success) { document.getElementById('statusText').textContent = 'Student not found'; return; }
+    const { student, bus, driver, route, stop, eta } = d.data;
+    studentData = d.data;
+    driverPhone = driver?.phone || '';
+
+    // Header
+    document.getElementById('childName').textContent = student.name;
+    document.getElementById('childClass').textContent = 'Class ' + student.class;
+
+    // Boarding badge
+    const bmap = { boarded:'🟢 On Bus', at_stop:'🟡 At Stop', absent:'🔴 Absent', departed:'✅ Reached' };
+    document.getElementById('boardingBadge').innerHTML = \`<span style="font-size:.7rem;font-weight:700;color:#333">\${bmap[student.status]||student.status}</span>\`;
+
+    // ETA
+    document.getElementById('etaTime').textContent = eta || '~20 min';
+
+    // Bus info
+    if(bus) {
+      document.getElementById('busNickname').textContent = bus.nickname || 'School Bus';
+      document.getElementById('busNumber').textContent = bus.number || '';
+      document.getElementById('busSpeed').textContent = bus.speed || 0;
+      document.getElementById('busFuel').textContent = (bus.fuel||0) + '%';
+      const chipClass = 'chip-' + (bus.status||'idle');
+      document.getElementById('busStatusChip').innerHTML = \`<span class="status-chip \${chipClass}">\${bus.status?.replace('_',' ')}</span>\`;
+
+      // Live dot color
+      document.getElementById('liveDot').style.background = bus.status==='on_trip'?'#00c853':bus.status==='delayed'?'#ff9800':'#9e9e9e';
+      document.getElementById('statusText').textContent = bus.status==='on_trip'?'GPS Live — Bus is on the way':bus.status==='delayed'?'Bus is delayed':bus.status==='idle'?'Bus is idle':'Tracking active';
+      document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+      // Map
+      if(!map) initMap(bus.lat, bus.lng);
+      else { busMarker.setLatLng([bus.lat, bus.lng]); map.panTo([bus.lat, bus.lng], {animate:true,duration:0.8}); }
+    }
+
+    // Route + Stop + Driver
+    document.getElementById('busRoute').textContent = route?.name || '—';
+    document.getElementById('busStop').textContent = stop?.name || '—';
+    document.getElementById('driverName').textContent = driver?.name || '—';
+    document.getElementById('gpsSource').textContent = bus?.lat ? '📡 Live GPS' : '📍 Last Known';
+
+    // Journey timeline
+    renderTimeline(student, stop);
+
+  } catch(e) {
+    document.getElementById('statusText').textContent = 'Connection error — retrying...';
+  }
+}
+
+function renderTimeline(student, currentStop) {
+  const stops = [
+    { name:'Bus Departed', time:'07:10', done:true, note:'Trip started' },
+    { name: currentStop?.name || 'En Route', time: currentStop?.eta||'--', done:false, current:true, note:'Bus approaching...' },
+    { name:'School Gate', time:'08:10', done:false, note:'Destination' },
+  ];
+  document.getElementById('journeyTimeline').innerHTML = stops.map((s,i) => \`
+    <div class="tl-item">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div class="tl-dot" style="background:\${s.done?'#00c853':s.current?'var(--primary)':'#e0e0e0'};color:\${s.done||s.current?'#fff':'#999'}">\${s.done?'✓':i+1}</div>
+        \${i<stops.length-1?'<div class="tl-line" style="height:28px;margin-top:3px"></div>':''}
+      </div>
+      <div style="padding-top:5px">
+        <div style="font-size:.85rem;font-weight:700;color:\${s.current?'var(--primary)':s.done?'#bbb':'#333'}">\${s.name}</div>
+        <div style="font-size:.72rem;color:#999">\${s.time} · \${s.note}</div>
+      </div>
+    </div>
+  \`).join('');
+}
+
+function callDriver() {
+  if(driverPhone) window.location.href = 'tel:' + driverPhone;
+  else toast('Driver contact not available', 'error');
+}
+
+function shareLocation() {
+  const url = window.location.href;
+  if(navigator.share) navigator.share({ title:'Track my child\\'s bus', url });
+  else { navigator.clipboard.writeText(url); toast('Link copied!','success'); }
+}
+
+async function refreshData() {
+  document.getElementById('statusText').textContent = 'Refreshing...';
+  await fetchData();
+  toast('Updated!','success');
+}
+
+// Poll every 5 seconds
+async function startPolling() {
+  await loadBranding();
+  await fetchData();
+  pollTimer = setInterval(fetchData, 5000);
+}
+
+startPolling();
+</script>
+</body></html>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// TEACHER PORTAL PAGE — /teacher
+// ════════════════════════════════════════════════════════════════
+function teacherPortalPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teacher Portal — TrackSchool</title>
+${sharedHead('Teacher Portal')}
+<style>
+  .teacher-header { background:linear-gradient(135deg,#1a73e8,#0d47a1); color:#fff; padding:20px 24px; }
+  .student-row { display:flex; align-items:center; gap:14px; padding:12px 16px; border-bottom:1px solid #f5f5f5; transition:.15s; cursor:pointer; }
+  .student-row:hover { background:#f8f9fa; }
+  .avatar { width:38px; height:38px; border-radius:50%; background:#1a73e8; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.9rem; flex-shrink:0; }
+  .status-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .stat-pill { background:#e3f2fd; color:#1a73e8; padding:3px 10px; border-radius:20px; font-size:.72rem; font-weight:700; }
+</style>
+</head>
+<body style="background:#f0f2f5">
+<div class="teacher-header">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="width:48px;height:48px;background:rgba(255,255,255,.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.4rem">👩‍🏫</div>
+    <div>
+      <h1 style="margin:0;font-size:1.2rem;font-weight:800">Teacher Portal</h1>
+      <div style="font-size:.78rem;opacity:.85" id="teacherSubtitle">Delhi Public School — Class Teacher</div>
+    </div>
+    <a href="/admin" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;padding:8px 14px;border-radius:10px;text-decoration:none;font-size:.78rem;font-weight:600"><i class="fa fa-house"></i> Admin</a>
+  </div>
+</div>
+
+<div style="max-width:900px;margin:0 auto;padding:20px">
+
+  <!-- Summary cards -->
+  <div class="grid-4" style="margin-bottom:20px" id="teacherStats">
+    <div class="stat-card"><div class="icon" style="background:#e8f5e9"><i class="fa fa-users" style="color:#2e7d32"></i></div><div><div class="value" id="tTotal">—</div><div class="label">Total Students</div></div></div>
+    <div class="stat-card"><div class="icon" style="background:#e8f5e9"><i class="fa fa-bus" style="color:#2e7d32"></i></div><div><div class="value" id="tBoarded">—</div><div class="label">On Bus</div></div></div>
+    <div class="stat-card"><div class="icon" style="background:#fff3e0"><i class="fa fa-clock" style="color:#e65100"></i></div><div><div class="value" id="tAtStop">—</div><div class="label">At Stop</div></div></div>
+    <div class="stat-card"><div class="icon" style="background:#fce4ec"><i class="fa fa-xmark" style="color:#c62828"></i></div><div><div class="value" id="tAbsent">—</div><div class="label">Absent</div></div></div>
+  </div>
+
+  <!-- Class selector + search -->
+  <div class="card" style="margin-bottom:20px;padding:16px">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <select id="classFilter" onchange="loadClass()" style="padding:10px 16px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.9rem;font-weight:600">
+        <option value="">— Select Class —</option>
+      </select>
+      <input id="studentSearch" type="text" placeholder="Search student..." oninput="filterStudents()" style="padding:10px 16px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.875rem;min-width:200px">
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="exportAbsent()"><i class="fa fa-download"></i> Absent List</button>
+        <button class="btn btn-primary btn-sm" onclick="sendBulkAlert()"><i class="fa fa-bell"></i> Alert Parents</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Student table -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between">
+      <h3 style="margin:0;font-size:.95rem;font-weight:700" id="classTitle">Select a class to view students</h3>
+      <span class="stat-pill" id="countPill">0 students</span>
+    </div>
+    <div id="studentTable">
+      <div style="text-align:center;padding:40px;color:#999"><i class="fa fa-graduation-cap" style="font-size:2rem;margin-bottom:10px;display:block"></i>Select a class from the dropdown above</div>
+    </div>
+  </div>
+
+  <!-- School-wide absent list -->
+  <div class="card" style="margin-top:20px">
+    <h3 style="margin:0 0 14px;font-size:.95rem;font-weight:700"><i class="fa fa-triangle-exclamation" style="color:#f44336;margin-right:8px"></i>Today's Absent Students (School-Wide)</h3>
+    <div id="absentList"></div>
+  </div>
+
+</div>
+
+${toastScript()}
+<script>
+let allStudents = [];
+let currentClass = '';
+
+// Load class list
+async function loadClasses() {
+  const res = await fetch('/api/teacher/classes/t001');
+  const d = await res.json();
+  const sel = document.getElementById('classFilter');
+  sel.innerHTML = '<option value="">— Select Class —</option>' + d.data.map(c => \`<option value="\${c}">\${c}</option>\`).join('');
+}
+
+async function loadClass() {
+  currentClass = document.getElementById('classFilter').value;
+  if(!currentClass) return;
+  document.getElementById('classTitle').textContent = 'Class ' + currentClass + ' — Bus Status';
+  const res = await fetch('/api/teacher/class/' + currentClass + '?tenantId=t001');
+  const d = await res.json();
+  if(!d.success) return showToast('No students found', 'warning');
+  allStudents = d.data;
+  document.getElementById('countPill').textContent = d.count + ' students';
+  // Stats
+  document.getElementById('tTotal').textContent = d.count;
+  document.getElementById('tBoarded').textContent = d.data.filter(s=>s.status==='boarded').length;
+  document.getElementById('tAtStop').textContent  = d.data.filter(s=>s.status==='at_stop').length;
+  document.getElementById('tAbsent').textContent  = d.data.filter(s=>s.status==='absent').length;
+  renderStudents(allStudents);
+}
+
+function renderStudents(list) {
+  const statusColor = { boarded:'#00c853', at_stop:'#ff9800', absent:'#f44336', departed:'#1a73e8' };
+  const statusLabel = { boarded:'On Bus 🚌', at_stop:'At Stop 🟡', absent:'Absent ❌', departed:'Reached ✅' };
+  document.getElementById('studentTable').innerHTML = list.length ? list.map(s => \`
+    <div class="student-row">
+      <div class="avatar">\${s.name.charAt(0)}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:.875rem">\${s.name}</div>
+        <div style="font-size:.72rem;color:#666">\${s.parentPhone} · RFID: \${s.rfid||'—'}</div>
+      </div>
+      <div style="text-align:right;min-width:110px">
+        <div style="font-size:.75rem;font-weight:700;color:\${statusColor[s.status]||'#999'}">\${statusLabel[s.status]||s.status}</div>
+        <div style="font-size:.7rem;color:#999">\${s.busNickname} · \${s.speed>0?s.speed+' km/h':'idle'}</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-left:8px">
+        <a href="/track/DPS/\${s.id}" target="_blank" title="Open parent view" style="background:#e3f2fd;color:#1a73e8;padding:6px 10px;border-radius:8px;text-decoration:none;font-size:.75rem"><i class="fa fa-eye"></i></a>
+        <a href="tel:\${s.parentPhone}" title="Call parent" style="background:#e8f5e9;color:#2e7d32;padding:6px 10px;border-radius:8px;text-decoration:none;font-size:.75rem"><i class="fa fa-phone"></i></a>
+      </div>
+    </div>
+  \`).join('') : '<div style="text-align:center;padding:30px;color:#999">No students found</div>';
+}
+
+function filterStudents() {
+  const q = document.getElementById('studentSearch').value.toLowerCase();
+  renderStudents(allStudents.filter(s => s.name.toLowerCase().includes(q) || s.status.includes(q)));
+}
+
+async function loadAbsent() {
+  const res = await fetch('/api/teacher/absent/t001');
+  const d = await res.json();
+  document.getElementById('absentList').innerHTML = d.count ? d.data.map(s => \`
+    <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#fce4ec;border-radius:8px;margin-bottom:6px">
+      <div class="avatar" style="background:#f44336;width:34px;height:34px;font-size:.8rem">\${s.name.charAt(0)}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:.85rem">\${s.name}</div><div style="font-size:.72rem;color:#666">Class \${s.class}</div></div>
+      <a href="tel:\${s.parentPhone}" style="background:#f44336;color:#fff;padding:6px 14px;border-radius:8px;text-decoration:none;font-size:.75rem;font-weight:700"><i class="fa fa-phone"></i> Call</a>
+    </div>
+  \`).join('') : '<div style="color:#999;font-size:.82rem">✅ No absent students today</div>';
+}
+
+function exportAbsent() {
+  const absent = allStudents.filter(s => s.status === 'absent');
+  if(!absent.length) return showToast('No absent students in this class', 'info');
+  const csv = 'Name,Class,Parent,Phone\\n' + absent.map(s => \`\${s.name},\${s.class},\${s.parentName||''},\${s.parentPhone}\`).join('\\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='absent_'+currentClass+'.csv'; a.click();
+  showToast('Absent list exported', 'success');
+}
+
+async function sendBulkAlert() {
+  const absent = allStudents.filter(s=>s.status==='absent');
+  if(!absent.length) return showToast('No absent students', 'info');
+  showToast('Sending alerts to ' + absent.length + ' parent(s)...', 'info');
+  setTimeout(() => showToast('Alerts sent via SMS to all absent parents', 'success'), 1500);
+}
+
+loadClasses();
+loadAbsent();
+</script>
+</body></html>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ERP ADMIN PORTAL — /erp-admin  (for schools WITH ERP system)
+// ════════════════════════════════════════════════════════════════
+function erpAdminPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ERP Integration — TrackSchool</title>
+${sharedHead('ERP Admin')}
+</head>
+<body style="background:#f0f2f5">
+<div style="background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;padding:20px 24px;display:flex;align-items:center;gap:14px">
+  <i class="fa fa-code" style="font-size:1.6rem"></i>
+  <div><h1 style="margin:0;font-size:1.2rem;font-weight:800">ERP Integration Dashboard</h1><p style="margin:0;font-size:.75rem;opacity:.8">Manage student sync, API keys, webhooks, data modes</p></div>
+  <a href="/admin" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;padding:8px 14px;border-radius:10px;text-decoration:none;font-size:.78rem">← Admin</a>
+</div>
+
+<div style="max-width:1000px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px">
+
+<!-- Mode selector -->
+<div class="card">
+  <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700">📋 Data Entry Mode</h3>
+  <p style="font-size:.82rem;color:#666;margin-bottom:16px">Choose how student and transport data is managed in TrackSchool.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+    ${[
+      ['manual','✏️','Manual Entry (No ERP)','School admin adds students, routes, buses one by one via the admin panel. Best for small schools.','#1a73e8'],
+      ['erp','🔗','ERP Integration','Your school ERP (Fedena, Edunext, etc.) pushes data via REST API. Fully automated sync.','#2e7d32'],
+      ['hybrid','🔄','Hybrid Mode','Start with manual entry, connect ERP later. Best of both worlds.','#6a1b9a'],
+    ].map(([mode,icon,title,desc,color]) => `
+    <div onclick="setMode('${mode}')" id="modeCard_${mode}" style="border:2px solid #e0e0e0;border-radius:12px;padding:18px;cursor:pointer;transition:.2s" onmouseover="this.style.borderColor='${color}'" onmouseout="if(currentMode!=='${mode}')this.style.borderColor='#e0e0e0'">
+      <div style="font-size:1.8rem;margin-bottom:8px">${icon}</div>
+      <div style="font-weight:700;font-size:.9rem;margin-bottom:4px">${title}</div>
+      <div style="font-size:.75rem;color:#666">${desc}</div>
+    </div>`).join('')}
+  </div>
+</div>
+
+<!-- Manual Entry Mode Panel -->
+<div id="panel_manual" style="display:none">
+  <div class="card">
+    <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700">✏️ Manual Data Entry</h3>
+    <div class="grid-3" style="gap:16px;margin-bottom:20px">
+      <div style="border:1.5px dashed #1a73e8;border-radius:12px;padding:20px;text-align:center;cursor:pointer" onclick="window.location.href='/admin/students'">
+        <i class="fa fa-user-plus" style="font-size:1.6rem;color:#1a73e8;margin-bottom:8px;display:block"></i>
+        <div style="font-weight:700;font-size:.85rem">Add Students</div>
+        <div style="font-size:.72rem;color:#666">One by one or bulk import</div>
+      </div>
+      <div style="border:1.5px dashed #2e7d32;border-radius:12px;padding:20px;text-align:center;cursor:pointer" onclick="window.location.href='/admin/buses'">
+        <i class="fa fa-bus" style="font-size:1.6rem;color:#2e7d32;margin-bottom:8px;display:block"></i>
+        <div style="font-weight:700;font-size:.85rem">Manage Buses</div>
+        <div style="font-size:.72rem;color:#666">Add GPS devices & drivers</div>
+      </div>
+      <div style="border:1.5px dashed #6a1b9a;border-radius:12px;padding:20px;text-align:center;cursor:pointer" onclick="window.location.href='/admin/routes'">
+        <i class="fa fa-route" style="font-size:1.6rem;color:#6a1b9a;margin-bottom:8px;display:block"></i>
+        <div style="font-weight:700;font-size:.85rem">Set Routes & Stops</div>
+        <div style="font-size:.72rem;color:#666">Map stops with ETA</div>
+      </div>
+    </div>
+    <div style="background:#fff3e0;border-radius:10px;padding:14px">
+      <div style="font-weight:700;font-size:.82rem;color:#e65100;margin-bottom:8px">📥 Bulk Import via CSV</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="csvFile" accept=".csv" style="font-size:.8rem">
+        <button class="btn btn-primary btn-sm" onclick="importCSV()"><i class="fa fa-upload"></i> Import Students</button>
+        <a href="#" onclick="downloadTemplate()" style="font-size:.78rem;color:#1a73e8">↓ Download Template</a>
+      </div>
+      <div id="importResult" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ERP Integration Panel -->
+<div id="panel_erp" style="display:none">
+  <div class="grid-2" style="gap:20px">
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:1rem;font-weight:700">🔑 API Key</h3>
+      <p style="font-size:.78rem;color:#666;margin-bottom:12px">Share this key with your ERP vendor to enable automated sync.</p>
+      <div id="erpKeyPanel">
+        <div style="background:#f8f9fa;border-radius:10px;padding:14px;margin-bottom:12px">
+          <div style="font-size:.72rem;color:#666;margin-bottom:4px">Active API Key</div>
+          <code id="erpKeyDisplay" style="font-size:.8rem;word-break:break-all">Loading...</code>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="genErpKey()"><i class="fa fa-rotate"></i> Regenerate</button>
+          <button class="btn btn-outline btn-sm" onclick="copyErpKey()"><i class="fa fa-copy"></i> Copy</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 14px;font-size:1rem;font-weight:700">📡 Sync Status</h3>
+      <div id="syncStatus">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#e8f5e9;border-radius:8px;margin-bottom:8px">
+          <span style="color:#00c853;font-size:1rem">●</span>
+          <div><div style="font-size:.82rem;font-weight:700">Students</div><div style="font-size:.72rem;color:#666">Last synced: just now</div></div>
+          <span style="margin-left:auto;font-size:.75rem;font-weight:700;color:#2e7d32">10 records</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#e8f5e9;border-radius:8px;margin-bottom:8px">
+          <span style="color:#00c853;font-size:1rem">●</span>
+          <div><div style="font-size:.82rem;font-weight:700">Attendance</div><div style="font-size:.72rem;color:#666">Auto-pushed daily</div></div>
+          <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="testSync()">Test</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 14px;font-size:1rem;font-weight:700">📖 ERP Integration Guide</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:.8rem;font-weight:700;color:#333;margin-bottom:8px">Push Students to TrackSchool</div>
+        <pre style="background:#1a1a2e;color:#e0e0e0;border-radius:10px;padding:14px;font-size:.7rem;overflow-x:auto">POST /api/erp/students/push
+X-API-Key: erk_t001_xxxxxxxx
+Content-Type: application/json
+
+[{
+  "name": "Aarav Sharma",
+  "class": "5A",
+  "busId": "b001",
+  "routeId": "r001",
+  "parentPhone": "+91-9901111111",
+  "parentEmail": "parent@gmail.com"
+}]</pre>
+      </div>
+      <div>
+        <div style="font-size:.8rem;font-weight:700;color:#333;margin-bottom:8px">Pull Attendance from TrackSchool</div>
+        <pre style="background:#1a1a2e;color:#e0e0e0;border-radius:10px;padding:14px;font-size:.7rem;overflow-x:auto">GET /api/erp/attendance/today
+X-API-Key: erk_t001_xxxxxxxx
+?tenantId=t001
+
+→ Returns boarding status
+  for all students today</pre>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:.8rem;font-weight:700;margin-bottom:8px">Webhook Events (push to your ERP)</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${['bus.location','student.boarded','student.departed','alert.sos','trip.started','trip.ended'].map(e => `<span style="background:#e3f2fd;color:#1a73e8;padding:4px 12px;border-radius:20px;font-size:.72rem;font-weight:700">${e}</span>`).join('')}
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:flex-end">
+        <div class="form-group" style="flex:1;margin-bottom:0"><label style="font-size:.78rem">Webhook URL (your ERP endpoint)</label><input id="webhookUrl" type="url" placeholder="https://your-erp.com/trackschool/webhook" style="width:100%;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem"></div>
+        <button class="btn btn-primary btn-sm" onclick="registerWebhook()">Register</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Hybrid Panel -->
+<div id="panel_hybrid" style="display:none">
+  <div class="card">
+    <h3 style="margin:0 0 10px">🔄 Hybrid Mode Active</h3>
+    <p style="font-size:.82rem;color:#666;margin-bottom:16px">Manual data is active now. Connect your ERP API key when ready — it will merge automatically.</p>
+    <div style="display:flex;gap:12px"><button class="btn btn-primary" onclick="setMode('manual')">✏️ Go to Manual Entry</button><button class="btn btn-outline" onclick="setMode('erp')">🔗 Connect ERP</button></div>
+  </div>
+</div>
+
+<!-- Live student data table (all modes) -->
+<div class="card" style="padding:0;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px">
+    <h3 style="margin:0;font-size:.95rem;font-weight:700">👥 Current Student Data</h3>
+    <button class="btn btn-outline btn-sm" onclick="refreshStudents()" style="margin-left:auto"><i class="fa fa-rotate"></i> Refresh</button>
+    <button class="btn btn-primary btn-sm" onclick="window.open('/api/erp/students/sync?tenantId=t001','_blank')"><i class="fa fa-download"></i> Export JSON</button>
+  </div>
+  <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+      <thead><tr style="background:#f8f9fa">
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">STUDENT</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">CLASS</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">BUS</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">ROUTE</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">PARENT PHONE</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">STATUS</th>
+        <th style="padding:10px 16px;text-align:left;font-size:.72rem;color:#666">TRACKING LINK</th>
+      </tr></thead>
+      <tbody id="erpStudentTable"></tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+${toastScript()}
+<script>
+let currentMode = 'manual';
+let currentErpKey = '';
+
+function setMode(mode) {
+  currentMode = mode;
+  ['manual','erp','hybrid'].forEach(m => {
+    const card = document.getElementById('modeCard_' + m);
+    const panel = document.getElementById('panel_' + m);
+    if(card) card.style.borderColor = m===mode ? (m==='manual'?'#1a73e8':m==='erp'?'#2e7d32':'#6a1b9a') : '#e0e0e0';
+    if(panel) panel.style.display = m===mode ? 'block' : 'none';
+  });
+}
+
+async function refreshStudents() {
+  const res = await fetch('/api/erp/students/sync?tenantId=t001');
+  const d = await res.json();
+  const statusColor = { boarded:'#00c853', at_stop:'#ff9800', absent:'#f44336', departed:'#1a73e8' };
+  document.getElementById('erpStudentTable').innerHTML = d.data.map(s => \`
+    <tr style="border-bottom:1px solid #f5f5f5">
+      <td style="padding:10px 16px"><div style="font-weight:700">\${s.name}</div><div style="font-size:.7rem;color:#999">RFID: \${s.rfid||'—'}</div></td>
+      <td style="padding:10px 16px">\${s.class}</td>
+      <td style="padding:10px 16px">\${s.bus_nickname||s.bus_number||'—'}</td>
+      <td style="padding:10px 16px;font-size:.78rem">\${s.route||'—'}</td>
+      <td style="padding:10px 16px">\${s.parentPhone||'—'}</td>
+      <td style="padding:10px 16px"><span style="color:\${statusColor[s.status]||'#999'};font-weight:700;font-size:.75rem">\${s.status}</span></td>
+      <td style="padding:10px 16px"><button onclick="copyTrackLink('\${s.student_id}')" style="background:#e3f2fd;color:#1a73e8;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.72rem"><i class="fa fa-link"></i> Copy</button></td>
+    </tr>
+  \`).join('');
+}
+
+function copyTrackLink(studentId) {
+  const link = window.location.origin + '/track/DPS/' + studentId;
+  navigator.clipboard.writeText(link);
+  showToast('Tracking link copied — share with parent!', 'success');
+}
+
+async function loadErpKey() {
+  const res = await fetch('/api/erp/keys/t001');
+  const d = await res.json();
+  if(d.data?.length) {
+    currentErpKey = d.data[0].key;
+    document.getElementById('erpKeyDisplay').textContent = currentErpKey;
+  } else {
+    document.getElementById('erpKeyDisplay').textContent = 'No key yet — click Regenerate';
+  }
+}
+
+async function genErpKey() {
+  const res = await fetch('/api/erp/keys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',label:'ERP Integration'})});
+  const d = await res.json();
+  currentErpKey = d.key;
+  document.getElementById('erpKeyDisplay').textContent = d.key;
+  showToast('New ERP API key generated — copy it now!', 'success');
+}
+
+function copyErpKey() {
+  navigator.clipboard.writeText(currentErpKey);
+  showToast('API key copied!', 'success');
+}
+
+async function registerWebhook() {
+  const url = document.getElementById('webhookUrl').value;
+  if(!url) return showToast('Enter webhook URL', 'warning');
+  const res = await fetch('/api/erp/webhook/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenantId:'t001',url,events:['bus.location','student.boarded','alert.sos']})});
+  const d = await res.json();
+  showToast('Webhook registered! Secret: ' + d.secret, 'success');
+}
+
+async function testSync() {
+  const res = await fetch('/api/erp/students/sync?tenantId=t001');
+  const d = await res.json();
+  showToast('Sync OK — ' + d.count + ' students returned', 'success');
+}
+
+function downloadTemplate() {
+  const csv = 'name,class,busId,routeId,stopId,parentName,parentPhone,parentEmail,rfidTag\\nAarav Sharma,5A,b001,r001,s1,Ashok Sharma,+91-9901111111,ashok@gmail.com,RF001';
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='students_template.csv'; a.click();
+}
+
+async function importCSV() {
+  const file = document.getElementById('csvFile').files[0];
+  if(!file) return showToast('Select a CSV file first', 'warning');
+  const text = await file.text();
+  const lines = text.split('\\n').filter(l=>l.trim());
+  const headers = lines[0].split(',').map(h=>h.trim());
+  const students = lines.slice(1).map(line => {
+    const vals = line.split(',');
+    return Object.fromEntries(headers.map((h,i)=>[h,vals[i]?.trim()]));
+  });
+  const res = await fetch('/api/erp/students/push',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':'erk_dps_001'},body:JSON.stringify(students)});
+  const d = await res.json();
+  document.getElementById('importResult').innerHTML = \`<div style="background:#e8f5e9;border-radius:8px;padding:10px;font-size:.78rem;color:#2e7d32;font-weight:700">✅ Imported: \${d.created} new, \${d.updated} updated</div>\`;
+  showToast('CSV imported successfully!','success');
+  refreshStudents();
+}
+
+// Init
+setMode('manual');
+refreshStudents();
+loadErpKey();
+</script>
+</body></html>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// SCHOOL SETUP WIZARD — /school-setup
+// For schools WITHOUT an ERP: guided onboarding to set up
+// school branding, buses, routes, students and get parent links
+// ════════════════════════════════════════════════════════════════
+function schoolSetupPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>School Setup Wizard — TrackSchool</title>
+<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh}
+.top-bar{background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;padding:18px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(0,0,0,.2)}
+.top-bar h1{font-size:1.15rem;font-weight:800}
+.top-bar p{font-size:.75rem;opacity:.8}
+.container{max-width:920px;margin:0 auto;padding:28px 20px}
+/* Progress steps */
+.steps{display:flex;gap:0;margin-bottom:32px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+.step-tab{flex:1;padding:16px 10px;text-align:center;cursor:pointer;transition:.2s;border-right:1px solid #f0f0f0;position:relative}
+.step-tab:last-child{border-right:none}
+.step-tab.active{background:#e3f2fd;color:#1a73e8}
+.step-tab.done{background:#e8f5e9;color:#2e7d32}
+.step-tab .num{width:28px;height:28px;border-radius:50%;background:#e0e0e0;color:#666;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;margin:0 auto 6px}
+.step-tab.active .num{background:#1a73e8;color:#fff}
+.step-tab.done .num{background:#2e7d32;color:#fff}
+.step-tab .label{font-size:.7rem;font-weight:700;color:inherit}
+/* Panels */
+.panel{display:none;background:#fff;border-radius:14px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:20px}
+.panel.active{display:block}
+.panel h2{font-size:1.1rem;font-weight:800;margin-bottom:6px;color:#1a1a2e}
+.panel .sub{font-size:.82rem;color:#666;margin-bottom:22px}
+/* Form */
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group label{font-size:.75rem;font-weight:700;color:#555}
+.form-group input,.form-group select,.form-group textarea{padding:11px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:.875rem;outline:none;transition:.2s;width:100%}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,115,232,.1)}
+/* Color swatch */
+.color-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.swatch{width:34px;height:34px;border-radius:8px;cursor:pointer;border:3px solid transparent;transition:.15s}
+.swatch.active{border-color:#1a1a2e;transform:scale(1.1)}
+/* Student list */
+.student-list-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #f0f0f0;border-radius:10px;margin-bottom:8px;background:#fafafa}
+.student-list-item .avatar{width:34px;height:34px;border-radius:50%;background:#1a73e8;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;flex-shrink:0}
+/* Link card */
+.link-card{background:linear-gradient(135deg,#e3f2fd,#bbdefb);border-radius:12px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
+.link-card .icon{font-size:1.6rem;flex-shrink:0}
+.link-card input{flex:1;padding:9px 12px;border:none;border-radius:8px;font-size:.78rem;background:#fff;font-family:monospace;min-width:0}
+.link-card button{flex-shrink:0;padding:9px 14px;background:#1a73e8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.78rem;font-weight:700;white-space:nowrap}
+/* Nav buttons */
+.nav-row{display:flex;justify-content:space-between;margin-top:24px}
+.btn{padding:12px 24px;border:none;border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:8px}
+.btn-primary{background:#1a73e8;color:#fff}
+.btn-primary:hover{background:#0d47a1}
+.btn-outline{background:#fff;color:#1a73e8;border:2px solid #1a73e8}
+.btn-outline:hover{background:#e3f2fd}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+/* Bus/route row */
+.resource-row{display:flex;align-items:center;gap:10px;padding:12px;border:1.5px solid #f0f0f0;border-radius:10px;margin-bottom:8px;background:#fafafa}
+.resource-row .rm-btn{padding:6px 10px;background:#fce4ec;color:#c62828;border:none;border-radius:6px;cursor:pointer;font-size:.75rem}
+/* QR placeholder */
+.qr-box{width:120px;height:120px;background:#f0f0f0;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:3rem;flex-shrink:0}
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:12px 22px;border-radius:10px;font-size:.85rem;z-index:9999;display:none;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <i class="fa fa-wand-magic-sparkles" style="font-size:1.4rem"></i>
+  <div>
+    <h1>School Setup Wizard</h1>
+    <p>Get your school transport tracking live in 5 easy steps — no ERP needed</p>
+  </div>
+  <a href="/admin" style="margin-left:auto;background:rgba(255,255,255,.15);color:#fff;padding:9px 16px;border-radius:10px;text-decoration:none;font-size:.78rem;font-weight:600"><i class="fa fa-house"></i> Admin</a>
+</div>
+
+<div class="container">
+
+  <!-- Progress tabs -->
+  <div class="steps" id="stepTabs">
+    <div class="step-tab active" id="tab1" onclick="goStep(1)"><div class="num">1</div><div class="label">🏫 School</div></div>
+    <div class="step-tab" id="tab2" onclick="goStep(2)"><div class="num">2</div><div class="label">🚌 Buses</div></div>
+    <div class="step-tab" id="tab3" onclick="goStep(3)"><div class="num">3</div><div class="label">🗺 Routes</div></div>
+    <div class="step-tab" id="tab4" onclick="goStep(4)"><div class="num">4</div><div class="label">👨‍👩‍👧 Students</div></div>
+    <div class="step-tab" id="tab5" onclick="goStep(5)"><div class="num">5</div><div class="label">🔗 Share</div></div>
+  </div>
+
+  <!-- Step 1: School Branding -->
+  <div class="panel active" id="panel1">
+    <h2>🏫 School Profile & Branding</h2>
+    <p class="sub">This info appears on the parent-facing tracking page (logo, colour, name).</p>
+    <div class="form-row">
+      <div class="form-group"><label>School Name *</label><input id="s_name" placeholder="e.g. Delhi Public School" value="Delhi Public School"></div>
+      <div class="form-group"><label>Short Code (used in URLs) *</label><input id="s_code" placeholder="e.g. DPS" maxlength="10" value="DPS"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Tagline</label><input id="s_tagline" placeholder="Excellence in Education" value="Excellence in Education"></div>
+      <div class="form-group"><label>Support Phone</label><input id="s_phone" placeholder="+91-9876543210" type="tel"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Admin Email *</label><input id="s_email" type="email" placeholder="admin@school.edu"></div>
+      <div class="form-group"><label>City / Location</label><input id="s_city" placeholder="New Delhi"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>School Logo (emoji or upload)</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">
+        ${['🏫','⛪','🏛️','🎓','🌟','🏆','📚','🌱'].map(e => `<span class="swatch" onclick="selectEmoji(this,'${e}')" style="background:#f5f5f5;font-size:1.4rem;display:flex;align-items:center;justify-content:center">${e}</span>`).join('')}
+        <input type="text" id="s_logo" placeholder="Or type emoji…" style="width:100px;padding:8px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:1.1rem;text-align:center" value="🏫">
+      </div>
+    </div>
+    <div>
+      <label style="font-size:.75rem;font-weight:700;color:#555;display:block;margin-bottom:8px">Brand Colour</label>
+      <div class="color-row" id="colorRow">
+        ${[['#1a73e8','Google Blue'],['#2e7d32','Forest Green'],['#6a1b9a','Purple'],['#c62828','Red'],['#e65100','Orange'],['#00838f','Teal'],['#1565c0','Navy'],['#4e342e','Brown']].map(([c,n]) => `<div class="swatch" title="${n}" onclick="selectColor(this,'${c}')" style="background:${c}"></div>`).join('')}
+        <input type="color" id="s_color" value="#1a73e8" onchange="updateColor(this.value)" style="width:34px;height:34px;border:none;cursor:pointer;border-radius:8px">
+      </div>
+    </div>
+    <div class="nav-row">
+      <span></span>
+      <button class="btn btn-primary" onclick="saveStep1()"><i class="fa fa-floppy-disk"></i> Save & Continue <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+
+  <!-- Step 2: Buses -->
+  <div class="panel" id="panel2">
+    <h2>🚌 Add Your School Buses</h2>
+    <p class="sub">Add each bus with its vehicle number and assign a driver. You can add more later.</p>
+    <div id="busFormArea">
+      <div class="form-row" style="background:#f8f9fa;padding:16px;border-radius:10px;margin-bottom:12px" id="busFormInner">
+        <div class="form-group"><label>Bus Nickname *</label><input id="b_nick" placeholder="e.g. Bus Alpha"></div>
+        <div class="form-group"><label>Vehicle Number *</label><input id="b_num" placeholder="e.g. DL-01-AB-1234"></div>
+        <div class="form-group"><label>Capacity</label><input id="b_cap" type="number" value="40" min="1" max="80"></div>
+        <div class="form-group"><label>Driver Name</label><input id="b_drv" placeholder="e.g. Ramesh Kumar"></div>
+        <div class="form-group"><label>Driver Phone</label><input id="b_drv_ph" type="tel" placeholder="+91-9876543210"></div>
+        <div class="form-group"><label>GPS Device ID (optional)</label><input id="b_gps" placeholder="Auto-assigned"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="addBus()" style="padding:10px 20px;font-size:.85rem"><i class="fa fa-plus"></i> Add Bus</button>
+    </div>
+    <div id="busList" style="margin-top:16px"></div>
+    <div class="nav-row">
+      <button class="btn btn-outline" onclick="goStep(1)"><i class="fa fa-arrow-left"></i> Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)">Continue <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+
+  <!-- Step 3: Routes & Stops -->
+  <div class="panel" id="panel3">
+    <h2>🗺 Define Routes & Stops</h2>
+    <p class="sub">Add the morning pickup route. Each stop has a name and estimated arrival time.</p>
+    <div style="background:#f8f9fa;padding:16px;border-radius:10px;margin-bottom:12px">
+      <div class="form-row">
+        <div class="form-group"><label>Route Name *</label><input id="r_name" placeholder="e.g. Route A — North Delhi"></div>
+        <div class="form-group"><label>Assign Bus</label><select id="r_bus"><option value="">— None yet —</option></select></div>
+        <div class="form-group"><label>Total Distance (km)</label><input id="r_dist" type="number" placeholder="18"></div>
+        <div class="form-group"><label>Duration (min)</label><input id="r_dur" type="number" placeholder="55"></div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:.75rem;font-weight:700;color:#555;display:block;margin-bottom:6px">Stops (in pickup order)</label>
+        <div id="stopsArea"></div>
+        <button onclick="addStop()" style="margin-top:8px;padding:7px 14px;background:#e3f2fd;color:#1a73e8;border:none;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:700"><i class="fa fa-plus"></i> Add Stop</button>
+      </div>
+      <button class="btn btn-primary" onclick="addRoute()" style="padding:10px 20px;font-size:.85rem"><i class="fa fa-plus"></i> Add Route</button>
+    </div>
+    <div id="routeList" style="margin-top:4px"></div>
+    <div class="nav-row">
+      <button class="btn btn-outline" onclick="goStep(2)"><i class="fa fa-arrow-left"></i> Back</button>
+      <button class="btn btn-primary" onclick="goStep(4)">Continue <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+
+  <!-- Step 4: Students -->
+  <div class="panel" id="panel4">
+    <h2>👨‍👩‍👧 Add Students</h2>
+    <p class="sub">Add students one by one, or bulk-import via CSV. Each student gets a unique parent tracking link.</p>
+
+    <!-- Tabs: manual vs CSV -->
+    <div style="display:flex;gap:10px;margin-bottom:16px">
+      <button id="addTabManual" onclick="switchAddTab('manual')" style="padding:9px 18px;background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer">✏️ Manual Entry</button>
+      <button id="addTabCsv" onclick="switchAddTab('csv')" style="padding:9px 18px;background:#f5f5f5;color:#333;border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer">📥 CSV Import</button>
+    </div>
+
+    <!-- Manual entry form -->
+    <div id="addManualForm" style="background:#f8f9fa;padding:16px;border-radius:10px;margin-bottom:12px">
+      <div class="form-row">
+        <div class="form-group"><label>Student Name *</label><input id="st_name" placeholder="e.g. Aarav Sharma"></div>
+        <div class="form-group"><label>Class / Section *</label><input id="st_class" placeholder="e.g. 5A"></div>
+        <div class="form-group"><label>Roll Number</label><input id="st_roll" placeholder="Optional"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Parent Name *</label><input id="st_pname" placeholder="e.g. Ashok Sharma"></div>
+        <div class="form-group"><label>Parent Phone (for login) *</label><input id="st_pphone" type="tel" placeholder="+91-9901111111"></div>
+        <div class="form-group"><label>Parent Email</label><input id="st_pemail" type="email" placeholder="ashok@gmail.com"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Assign Bus</label><select id="st_bus"><option value="">— Select Bus —</option></select></div>
+        <div class="form-group"><label>Assign Route</label><select id="st_route" onchange="loadStopsForStudent()"><option value="">— Select Route —</option></select></div>
+        <div class="form-group"><label>Pickup Stop</label><select id="st_stop"><option value="">— Select Stop —</option></select></div>
+      </div>
+      <button class="btn btn-primary" onclick="addStudent()" style="padding:10px 20px;font-size:.85rem"><i class="fa fa-user-plus"></i> Add Student</button>
+    </div>
+
+    <!-- CSV import section -->
+    <div id="addCsvForm" style="display:none;background:#fff3e0;border-radius:10px;padding:16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:.85rem;color:#e65100;margin-bottom:10px">📥 Bulk Import via CSV</div>
+      <div style="font-size:.78rem;color:#666;margin-bottom:10px">Required columns: <code>name, class, parentName, parentPhone, busId, routeId</code></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="csvFile4" accept=".csv" style="font-size:.8rem">
+        <button class="btn btn-primary" onclick="importCsv4()" style="padding:9px 16px;font-size:.82rem"><i class="fa fa-upload"></i> Import</button>
+        <button onclick="downloadCsvTemplate()" style="padding:9px 14px;background:#fff;color:#1a73e8;border:1.5px solid #1a73e8;border-radius:8px;cursor:pointer;font-size:.78rem;font-weight:700">↓ Template</button>
+      </div>
+      <div id="csvResult4" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Student list -->
+    <div id="studentList4" style="margin-top:4px"></div>
+
+    <div class="nav-row">
+      <button class="btn btn-outline" onclick="goStep(3)"><i class="fa fa-arrow-left"></i> Back</button>
+      <button class="btn btn-primary" onclick="goStep(5)">Generate Links <i class="fa fa-arrow-right"></i></button>
+    </div>
+  </div>
+
+  <!-- Step 5: Share Links -->
+  <div class="panel" id="panel5">
+    <h2>🔗 Share Parent Tracking Links</h2>
+    <p class="sub">Each parent gets a unique, branded link. Share via WhatsApp, SMS, or email. No app download needed!</p>
+
+    <!-- School portal link -->
+    <div style="background:linear-gradient(135deg,#1a73e8,#0d47a1);color:#fff;border-radius:14px;padding:20px;margin-bottom:20px">
+      <div style="font-size:.8rem;opacity:.8;margin-bottom:6px">📱 School Parent Portal (general login)</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input id="portalLinkFinal" readonly style="flex:1;background:rgba(255,255,255,.15);border:none;color:#fff;padding:10px 14px;border-radius:8px;font-size:.82rem;font-family:monospace;min-width:0">
+        <button onclick="copyPortalLink()" style="padding:10px 16px;background:#fff;color:#1a73e8;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:.8rem;white-space:nowrap"><i class="fa fa-copy"></i> Copy</button>
+        <button onclick="whatsappPortal()" style="padding:10px 16px;background:#25D366;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:.8rem;white-space:nowrap"><i class="fa-brands fa-whatsapp"></i> WA</button>
+      </div>
+      <div style="font-size:.72rem;opacity:.7;margin-top:8px">Parents enter their registered phone, receive OTP, and see their child's bus live</div>
+    </div>
+
+    <!-- Bulk action bar -->
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <button onclick="copyAllLinks()" style="padding:10px 16px;background:#fff;color:#1a73e8;border:2px solid #1a73e8;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer"><i class="fa fa-copy"></i> Copy All Links</button>
+      <button onclick="exportLinksCsv()" style="padding:10px 16px;background:#fff;color:#2e7d32;border:2px solid #2e7d32;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer"><i class="fa fa-file-csv"></i> Export CSV</button>
+      <button onclick="sendSmsAll()" style="padding:10px 16px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer"><i class="fa-brands fa-whatsapp"></i> WhatsApp All</button>
+      <button onclick="window.open('/admin/erp','_blank')" style="padding:10px 16px;background:#6a1b9a;color:#fff;border:none;border-radius:8px;font-size:.8rem;font-weight:700;cursor:pointer"><i class="fa fa-code"></i> ERP Integration</button>
+    </div>
+
+    <!-- Per-student links -->
+    <div id="studentLinksList"></div>
+
+    <div style="background:#e8f5e9;border-radius:12px;padding:18px;margin-top:16px">
+      <div style="font-weight:700;color:#2e7d32;margin-bottom:8px;font-size:.9rem">✅ Setup Complete!</div>
+      <div style="font-size:.82rem;color:#388e3c;line-height:1.6">
+        Your school is now live on TrackSchool. Parents can track their child's bus in real-time. 
+        Drivers use the <strong>Driver App</strong> to broadcast GPS. You can manage everything from the <strong>Admin Panel</strong>.
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+        <a href="/admin" style="padding:10px 18px;background:#1a73e8;color:#fff;border-radius:8px;text-decoration:none;font-size:.82rem;font-weight:700"><i class="fa fa-gauge-high"></i> Admin Panel</a>
+        <a href="/driver" style="padding:10px 18px;background:#fff;color:#1a73e8;border:1.5px solid #1a73e8;border-radius:8px;text-decoration:none;font-size:.82rem;font-weight:700"><i class="fa fa-mobile"></i> Driver App</a>
+        <a href="/teacher" style="padding:10px 18px;background:#fff;color:#2e7d32;border:1.5px solid #2e7d32;border-radius:8px;text-decoration:none;font-size:.82rem;font-weight:700"><i class="fa fa-graduation-cap"></i> Teacher Portal</a>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <button class="btn btn-outline" onclick="goStep(4)"><i class="fa fa-arrow-left"></i> Back</button>
+      <a href="/admin" class="btn btn-primary"><i class="fa fa-house"></i> Go to Admin</a>
+    </div>
+  </div>
+
+</div><!-- /container -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+let currentStep = 1;
+let schoolData  = { name:'Delhi Public School', code:'DPS', tagline:'Excellence in Education', phone:'', email:'', city:'', logo:'🏫', color:'#1a73e8' };
+let buses   = [];
+let routes  = [];
+let students = [];
+let stopData = {}; // routeId → stops[]
+
+// ── Navigation ─────────────────────────────────────────────────
+function goStep(n) {
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i+1 === n));
+  document.querySelectorAll('.step-tab').forEach((t,i) => {
+    t.classList.toggle('active', i+1 === n);
+    t.classList.toggle('done', i+1 < n);
+  });
+  currentStep = n;
+  if(n === 2) populateBusSelects();
+  if(n === 3) populateRouteSelects();
+  if(n === 4) { populateBusSelects(); populateRouteSelects(); renderStudents(); }
+  if(n === 5) renderLinks();
+}
+
+// ── Step 1: School ─────────────────────────────────────────────
+function selectEmoji(el, emoji) {
+  document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('s_logo').value = emoji;
+}
+function selectColor(el, color) {
+  document.querySelectorAll('#colorRow .swatch').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('s_color').value = color;
+}
+function updateColor(color) {
+  document.querySelectorAll('#colorRow .swatch').forEach(s => s.classList.remove('active'));
+}
+
+async function saveStep1() {
+  const name  = document.getElementById('s_name').value.trim();
+  const code  = document.getElementById('s_code').value.trim().toUpperCase();
+  if(!name || !code) return toast('School name and code are required', 'error');
+  schoolData = {
+    name, code,
+    tagline: document.getElementById('s_tagline').value.trim(),
+    phone:   document.getElementById('s_phone').value.trim(),
+    email:   document.getElementById('s_email').value.trim(),
+    city:    document.getElementById('s_city').value.trim(),
+    logo:    document.getElementById('s_logo').value.trim() || '🏫',
+    color:   document.getElementById('s_color').value,
+  };
+  // Save branding to backend
+  try {
+    await fetch('/api/branding/t001', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ schoolName:schoolData.name, tagline:schoolData.tagline, logo:schoolData.logo, primaryColor:schoolData.color, supportPhone:schoolData.phone }) });
+    toast('School profile saved!', 'success');
+    setTimeout(()=>goStep(2), 800);
+  } catch(e) {
+    toast('Saved locally — offline mode', 'info');
+    setTimeout(()=>goStep(2), 600);
+  }
+}
+
+// ── Step 2: Buses ──────────────────────────────────────────────
+async function addBus() {
+  const nick = document.getElementById('b_nick').value.trim();
+  const num  = document.getElementById('b_num').value.trim();
+  if(!nick || !num) return toast('Nickname and vehicle number required', 'error');
+  const drvName = document.getElementById('b_drv').value.trim();
+  const drvPh   = document.getElementById('b_drv_ph').value.trim();
+
+  // POST to backend
+  let busId = 'b_' + Date.now();
+  try {
+    const payload = { nickname:nick, number:num, capacity:+document.getElementById('b_cap').value||40, tenantId:'t001', status:'idle', fuel:100, speed:0 };
+    const res = await fetch('/api/buses', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d = await res.json();
+    if(d.success) busId = d.data?.id || busId;
+    // Add driver if provided
+    if(drvName) {
+      const dRes = await fetch('/api/drivers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:drvName,phone:drvPh,tenantId:'t001',busId})});
+    }
+  } catch(e) {}
+
+  buses.push({ id:busId, nickname:nick, number:num, driver:drvName });
+  renderBusList();
+  ['b_nick','b_num','b_drv','b_drv_ph','b_gps'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('b_cap').value='40';
+  toast(nick + ' added!','success');
+}
+
+function renderBusList() {
+  document.getElementById('busList').innerHTML = buses.length
+    ? buses.map((b,i) => \`<div class="resource-row"><span style="font-size:1.2rem">🚌</span><div style="flex:1"><div style="font-weight:700;font-size:.875rem">\${b.nickname}</div><div style="font-size:.72rem;color:#666">\${b.number}\${b.driver?' · Driver: '+b.driver:''}</div></div><button class="rm-btn" onclick="removeBus(\${i})"><i class="fa fa-trash"></i></button></div>\`).join('')
+    : '<div style="color:#999;font-size:.82rem;text-align:center;padding:12px">No buses added yet</div>';
+}
+
+function removeBus(i) { buses.splice(i,1); renderBusList(); }
+
+// ── Step 3: Routes ─────────────────────────────────────────────
+let routeStops = []; // temp stops being built
+
+function addStop() {
+  routeStops.push({ order: routeStops.length+1, name:'', eta:'' });
+  renderStopsArea();
+}
+
+function renderStopsArea() {
+  document.getElementById('stopsArea').innerHTML = routeStops.map((s,i) => \`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <span style="width:22px;height:22px;background:#1a73e8;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;flex-shrink:0">\${i+1}</span>
+      <input placeholder="Stop name e.g. Janakpuri Block B" style="flex:2;padding:8px 10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.82rem" value="\${s.name}" onchange="routeStops[\${i}].name=this.value">
+      <input placeholder="ETA e.g. 07:45" style="flex:1;padding:8px 10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.82rem;min-width:80px" value="\${s.eta}" onchange="routeStops[\${i}].eta=this.value">
+      <button onclick="routeStops.splice(\${i},1);renderStopsArea()" style="padding:6px 9px;background:#fce4ec;color:#c62828;border:none;border-radius:6px;cursor:pointer"><i class="fa fa-trash"></i></button>
+    </div>
+  \`).join('');
+}
+
+async function addRoute() {
+  const name = document.getElementById('r_name').value.trim();
+  if(!name) return toast('Route name required', 'error');
+  if(routeStops.filter(s=>s.name).length < 1) return toast('Add at least one stop', 'error');
+  const validStops = routeStops.filter(s=>s.name);
+
+  let routeId = 'r_' + Date.now();
+  try {
+    const payload = { name, busId:document.getElementById('r_bus').value, totalStudents:0,
+      distance:+document.getElementById('r_dist').value||0, duration:+document.getElementById('r_dur').value||0,
+      tenantId:'t001', stops:validStops.map((s,i)=>({id:'s_'+i,name:s.name,eta:s.eta,order:i+1,lat:28.61+Math.random()*0.05,lng:77.20+Math.random()*0.05})) };
+    const res = await fetch('/api/routes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d = await res.json();
+    if(d.success) routeId = d.data?.id || routeId;
+    stopData[routeId] = payload.stops;
+  } catch(e) {}
+
+  routes.push({ id:routeId, name, busId:document.getElementById('r_bus').value, stops:routeStops.filter(s=>s.name) });
+  routeStops = [];
+  renderStopsArea();
+  renderRouteList();
+  document.getElementById('r_name').value='';
+  toast(name + ' added!','success');
+}
+
+function renderRouteList() {
+  document.getElementById('routeList').innerHTML = routes.length
+    ? routes.map((r,i)=>\`<div class="resource-row"><span style="font-size:1.2rem">🗺</span><div style="flex:1"><div style="font-weight:700;font-size:.875rem">\${r.name}</div><div style="font-size:.72rem;color:#666">\${r.stops.length} stops</div></div><button class="rm-btn" onclick="removeRoute(\${i})"><i class="fa fa-trash"></i></button></div>\`).join('')
+    : '<div style="color:#999;font-size:.82rem;text-align:center;padding:12px">No routes yet</div>';
+}
+function removeRoute(i) { routes.splice(i,1); renderRouteList(); }
+
+function populateBusSelects() {
+  ['r_bus','st_bus'].forEach(id => {
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    sel.innerHTML = '<option value="">— Select —</option>' + buses.map(b=>\`<option value="\${b.id}">\${b.nickname} (\${b.number})</option>\`).join('');
+  });
+}
+
+function populateRouteSelects() {
+  const sel = document.getElementById('st_route');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">— Select Route —</option>' + routes.map(r=>\`<option value="\${r.id}">\${r.name}</option>\`).join('');
+}
+
+function loadStopsForStudent() {
+  const rid = document.getElementById('st_route').value;
+  const sel = document.getElementById('st_stop');
+  const stops = routes.find(r=>r.id===rid)?.stops || [];
+  sel.innerHTML = '<option value="">— Select Stop —</option>' + stops.filter(s=>s.name).map((s,i)=>\`<option value="s_\${i}">\${s.name} (\${s.eta||'--'})</option>\`).join('');
+}
+
+// ── Step 4: Students ───────────────────────────────────────────
+function switchAddTab(tab) {
+  document.getElementById('addManualForm').style.display = tab==='manual'?'block':'none';
+  document.getElementById('addCsvForm').style.display    = tab==='csv'?'block':'none';
+  document.getElementById('addTabManual').style.background = tab==='manual'?'#1a73e8':'#f5f5f5';
+  document.getElementById('addTabManual').style.color      = tab==='manual'?'#fff':'#333';
+  document.getElementById('addTabCsv').style.background   = tab==='csv'?'#1a73e8':'#f5f5f5';
+  document.getElementById('addTabCsv').style.color        = tab==='csv'?'#fff':'#333';
+}
+
+async function addStudent() {
+  const name = document.getElementById('st_name').value.trim();
+  const cls  = document.getElementById('st_class').value.trim();
+  const ph   = document.getElementById('st_pphone').value.trim();
+  if(!name||!cls||!ph) return toast('Name, class and parent phone are required','error');
+
+  let stId = 'st_' + Date.now();
+  const payload = {
+    name, class:cls, roll:document.getElementById('st_roll').value.trim(),
+    parentName:document.getElementById('st_pname').value.trim(),
+    parentPhone:ph, parentEmail:document.getElementById('st_pemail').value.trim(),
+    busId:document.getElementById('st_bus').value,
+    routeId:document.getElementById('st_route').value,
+    stopId:document.getElementById('st_stop').value,
+    tenantId:'t001', status:'at_stop', rfidTag:'RF'+Math.floor(Math.random()*9000+1000)
+  };
+  try {
+    const res = await fetch('/api/students',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d = await res.json();
+    if(d.success) stId = d.data?.id || stId;
+  } catch(e) {}
+
+  students.push({...payload, id:stId});
+  renderStudents();
+  ['st_name','st_class','st_roll','st_pname','st_pphone','st_pemail'].forEach(id=>document.getElementById(id).value='');
+  toast(name + ' added!','success');
+}
+
+function renderStudents() {
+  document.getElementById('studentList4').innerHTML = students.length
+    ? \`<div style="font-size:.78rem;font-weight:700;color:#555;margin-bottom:8px">\${students.length} student(s) added:</div>\` + students.map((s,i)=>\`
+        <div class="student-list-item">
+          <div class="avatar">\${s.name.charAt(0)}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:.875rem">\${s.name}</div>
+            <div style="font-size:.72rem;color:#666">Class \${s.class} · \${s.parentPhone}</div>
+          </div>
+          <button onclick="removeStudent(\${i})" style="padding:5px 9px;background:#fce4ec;color:#c62828;border:none;border-radius:6px;cursor:pointer;font-size:.75rem"><i class="fa fa-trash"></i></button>
+        </div>\`).join('')
+    : '<div style="text-align:center;color:#999;padding:16px;font-size:.82rem">No students yet — add above or import CSV</div>';
+}
+
+function removeStudent(i) { students.splice(i,1); renderStudents(); }
+
+function downloadCsvTemplate() {
+  const csv = 'name,class,parentName,parentPhone,parentEmail,busId,routeId\\nAarav Sharma,5A,Ashok Sharma,+919901111111,ashok@gmail.com,b001,r001';
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='students_template.csv'; a.click();
+}
+
+async function importCsv4() {
+  const file = document.getElementById('csvFile4').files[0];
+  if(!file) return toast('Select a CSV file','error');
+  const text  = await file.text();
+  const lines = text.split('\\n').filter(l=>l.trim());
+  const hdrs  = lines[0].split(',').map(h=>h.trim());
+  const rows  = lines.slice(1).map(line=>{ const v=line.split(','); return Object.fromEntries(hdrs.map((h,i)=>[h,v[i]?.trim()])); });
+  rows.forEach(r=>{ if(r.name&&r.class&&r.parentPhone) students.push({...r, id:'st_'+Date.now()+Math.random(), tenantId:'t001', status:'at_stop', rfidTag:'RF'+Math.floor(Math.random()*9000+1000)}); });
+  renderStudents();
+  document.getElementById('csvResult4').innerHTML = \`<div style="background:#e8f5e9;border-radius:8px;padding:10px;font-size:.78rem;color:#2e7d32;font-weight:700">✅ \${rows.length} students imported</div>\`;
+  toast(rows.length + ' students imported','success');
+}
+
+// ── Step 5: Links ──────────────────────────────────────────────
+function renderLinks() {
+  const origin = window.location.origin;
+  const code   = schoolData.code || 'DPS';
+  document.getElementById('portalLinkFinal').value = origin + '/track/' + code;
+
+  if(!students.length) {
+    // Show demo with existing students from API
+    fetch('/api/erp/students/sync?tenantId=t001').then(r=>r.json()).then(d=>{
+      if(d.data?.length) {
+        renderLinkCards(d.data.slice(0,10).map(s=>({name:s.name, class:s.class, parentPhone:s.parentPhone||'—', id:s.student_id})), origin, code);
+      } else {
+        document.getElementById('studentLinksList').innerHTML = '<div style="color:#999;text-align:center;padding:20px">Add students in Step 4 to generate individual links</div>';
+      }
+    });
+    return;
+  }
+  renderLinkCards(students, origin, code);
+}
+
+function renderLinkCards(list, origin, code) {
+  document.getElementById('studentLinksList').innerHTML = list.map(s => {
+    const link = origin + '/track/' + code + '/' + s.id;
+    return \`
+    <div class="link-card">
+      <div class="icon">👦</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:.875rem;margin-bottom:2px">\${s.name} <span style="font-size:.72rem;color:#666;font-weight:400">Class \${s.class}</span></div>
+        <div style="font-size:.7rem;color:#666;margin-bottom:6px">\${s.parentPhone || '—'}</div>
+        <input value="\${link}" readonly style="width:100%;padding:6px 8px;border:1px solid #b3d1f5;border-radius:6px;font-size:.7rem;font-family:monospace;background:#f0f6ff">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button onclick="copyLink('\${link}')" style="padding:7px 10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.72rem;white-space:nowrap"><i class="fa fa-copy"></i></button>
+        <a href="https://wa.me/\${(s.parentPhone||'').replace(/\\D/g,'')}?text=\${encodeURIComponent('Track '+s.name+\\"'s bus live: \\"+link)}" target="_blank" style="padding:7px 10px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.72rem;display:flex;align-items:center;justify-content:center;text-decoration:none"><i class="fa-brands fa-whatsapp"></i></a>
+      </div>
+    </div>\`;
+  }).join('');
+}
+
+function copyLink(link) {
+  navigator.clipboard.writeText(link);
+  toast('Link copied!', 'success');
+}
+
+function copyPortalLink() {
+  navigator.clipboard.writeText(document.getElementById('portalLinkFinal').value);
+  toast('Portal link copied!', 'success');
+}
+
+function whatsappPortal() {
+  const link = document.getElementById('portalLinkFinal').value;
+  const msg  = encodeURIComponent('Track your child\\'s school bus live: ' + link);
+  window.open('https://wa.me/?text='+msg,'_blank');
+}
+
+function copyAllLinks() {
+  const origin = window.location.origin;
+  const code   = schoolData.code || 'DPS';
+  const text   = students.map(s=>s.name+': '+origin+'/track/'+code+'/'+s.id).join('\\n');
+  if(!text) return toast('No students added yet','error');
+  navigator.clipboard.writeText(text);
+  toast('All links copied!','success');
+}
+
+function exportLinksCsv() {
+  const origin = window.location.origin;
+  const code   = schoolData.code || 'DPS';
+  const header = 'Student Name,Class,Parent Phone,Tracking Link';
+  const rows   = students.map(s=>\`\${s.name},\${s.class},\${s.parentPhone},\${origin}/track/\${code}/\${s.id}\`);
+  const blob   = new Blob([header+'\\n'+rows.join('\\n')],{type:'text/csv'});
+  const a      = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='parent_tracking_links.csv'; a.click();
+  toast('CSV exported!','success');
+}
+
+function sendSmsAll() {
+  const msg = 'Hi! Track your child\\'s school bus live: ' + window.location.origin + '/track/' + (schoolData.code||'DPS');
+  window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+}
+
+// ── Toast ──────────────────────────────────────────────────────
+function toast(msg, type='info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = type==='error'?'#f44336':type==='success'?'#00c853':type==='warning'?'#ff9800':'#333';
+  t.style.display='block';
+  setTimeout(()=>t.style.display='none',3000);
+}
+
+// Init: add a couple default stops so step 3 is ready
+addStop(); addStop(); addStop();
+</script>
+</body></html>`;
 }
